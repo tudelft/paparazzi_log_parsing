@@ -138,10 +138,11 @@ def operation_items(con, start):
     """Teams of outdoor operations that waited for approval and were approved or rejected (decided_by set)."""
     rows = con.execute(
         "SELECT o.*, b.starts_at, b.ends_at, p.name AS place, COALESCE(u.display_name,u.username) AS person,"
-        " COALESCE(d.display_name,d.username) AS decider, pr.name AS project FROM operation_teams o"
+        " COALESCE(d.display_name,d.username) AS decider,"
+        " (SELECT group_concat(name, ', ') FROM (SELECT pr.name FROM operation_projects op JOIN projects pr"
+        " ON pr.id=op.project_id WHERE op.team_id=o.id ORDER BY pr.name COLLATE NOCASE)) AS project FROM operation_teams o"
         " JOIN bookings b ON b.id=o.booking_id JOIN operation_slots s ON s.booking_id=b.id"
         " JOIN places p ON p.id=s.place_id JOIN users u ON u.id=o.pic_id LEFT JOIN users d ON d.id=o.decided_by"
-        " LEFT JOIN projects pr ON pr.id=o.project_id"
         " WHERE o.decided_by IS NOT NULL AND o.status IN ('approved','rejected') AND o.decided_at>=?",
         (start or "",)).fetchall()
     return [dict(key=f"o{r['id']}", kind="operation", id=r["id"], user_id=r["pic_id"], person=r["person"],
