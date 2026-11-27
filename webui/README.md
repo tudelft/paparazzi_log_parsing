@@ -268,7 +268,7 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   (project, members, logs, operator, category); a row opens a project you may change beside it (Details, Members),
   other rows open the project page. **Edit project** changes the name, operator, category, track origin and members in one dialog
   (access per member: See, upload, edit, delete or Manager); ⋯ deletes the project. Admins can make a member
-  **Manager** of a project; a manager changes its members with Edit project, but only admins appoint managers
+  **Manager** of a project; a manager changes its members and track origin with Edit project, but only admins appoint managers
   ([details](TECHNICAL.md#accounts-and-tu-delft-login)).
   **Manage ▾ → Import CSV…** on Projects takes `project,person,role`; blank roles mean view/upload.
   Reimports replace all members of included projects. For initial setup, import qualifications first,

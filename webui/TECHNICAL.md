@@ -149,7 +149,10 @@ maps zoom to level 23 (tiles above 19 are scaled up). Distances and the logbook 
 north/east position without map coordinates of its own (e.g. Blackbox/INDIFlight, PX4, ArduPilot or MAVLink logs flown
 with motion capture, or simulations) is drawn from a location: the one set on the flight (Edit flight → *Track
 origin*, `PUT /api/flights/<id>/track-origin` with `place_id`, null = the project's; same rights as the goal; kept
-across a re-parse), else the project's default (Edit project, admins, `track_origin_place_id`). Local north/east are
+across a re-parse), else the project's default (Edit project, admins and the project's managers,
+`track_origin_place_id`). Both offer and accept only the locations that person may see: administrators every
+location, others those of the Locations page (where a flight they can see took off or landed), plus the current values
+(`origin_places`; another id answers 400 "no such location"), so the list does not reveal other locations. Local north/east are
 added to the centre of that location (flat earth, no rotation: a rough location only). The server does this when it
 serves the path (`/api/flights/<id>/path` and the flight page's `/detail`), into each point's `ins` `lat`/`lon`
 (marked `placed`), so a new origin needs no reparse. GPS `position`, the logbook places, distances, weather and GPS
@@ -1024,8 +1027,9 @@ rows per page (20 by default) are in the URL (`q`, `sort`, `page`, `size`). Admi
 beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
 Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
 **New operator…**), category and [track origin](#track-origin) (`PUT /api/admin/projects/<id>` with only what changed;
-`/api/admin/projects` lists the locations for it) and the members; a manager only
-the members. Each member has one access select (See / See, upload / … edit / … delete / Manager) and × to remove
+`/api/admin/projects` lists the locations for it) and the members; a manager the track origin
+(`GET`/`PUT /api/projects/<id>/track-origin`: `{place_id, places}` / `{"place_id": id or null}`, from the locations
+they may see) and the members. Each member has one access select (See / See, upload / … edit / … delete / Manager) and × to remove
 (↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
 changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**
 (Import CSV…, Download CSV template) are admins only; dialogs replace `confirm()`.
