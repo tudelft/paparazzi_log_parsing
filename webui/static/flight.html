@@ -490,7 +490,10 @@ function paintMore() {
     seen.add(s.log_id);
     const what = several ? ' ' + (TYPE[s.log_type] || s.log_type) : ' log';
     if (canReparse()) items.push(`<button type="button" class="ext-item" role="menuitem" data-more="reparse" data-log="${s.log_id}" title="${esc(s.log_name)}">Re-parse${esc(what)}…</button>`);
-    if (logInfo[s.log_id]?.can_delete) items.push(`<button type="button" class="ext-item danger-item" role="menuitem" data-more="delete" data-log="${s.log_id}" title="${esc(s.log_name)}">Delete${esc(what)}…</button>`);
+    const kept = logInfo[s.log_id]?.kept_until;
+    if (logInfo[s.log_id]?.can_delete) items.push(kept && !me?.is_admin
+      ? `<button type="button" class="ext-item" role="menuitem" disabled title="Kept until ${esc(kept)}. Flight records are kept for the retention period (EU 2019/947: 3 years); an administrator can hide its flights in the Logbook, or delete it with a reason">Delete${esc(what)}…</button>`
+      : `<button type="button" class="ext-item danger-item" role="menuitem" data-more="delete" data-log="${s.log_id}" title="${esc(s.log_name)}">Delete${esc(what)}…</button>`);
   }
   $('moreMenu').innerHTML = items.join('');
   $('moreWrap').hidden = !items.length;
@@ -532,8 +535,13 @@ $('moreMenu').onclick = event => {
       out.textContent = 'Still parsing; reload the page later.';
     });
   } else {
-    actionDialog('Delete log', `<p style="margin:0">Delete <b>${name}</b>, its files and the flights parsed from it? This cannot be undone.</p>`, 'Delete', async out => {
-      if (await send(`/api/logs/${logId}`, 'DELETE', null, out, 'Could not delete the log')) location.href = '/';
+    const kept = logInfo[logId]?.kept_until;  // within the retention period: only administrators, with a reason
+    actionDialog('Delete log', `<p style="margin:0">Delete <b>${name}</b>, its files and the flights parsed from it? This cannot be undone.</p>`
+      + (kept ? `<p>Its flights are kept until <b>${esc(kept)}</b> (retention period). Hiding them in the Logbook keeps the record;
+        to delete it anyway, give the reason. It is kept with a copy of the log's details.</p>
+        <label class="field">Reason<textarea id="deleteReason" class="comment" rows="2" maxlength="1000" required minlength="5"></textarea></label>` : ''), 'Delete', async out => {
+      const body = kept ? {reason: $('deleteReason').value.trim()} : null;
+      if (await send(`/api/logs/${logId}`, 'DELETE', body, out, 'Could not delete the log')) location.href = '/';
     });
   }
 };

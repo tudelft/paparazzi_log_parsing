@@ -206,6 +206,9 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   change an existing date or the classification on the flight page. Admins can also **Hide**
   entries from the logbook and totals without deleting files; **Manage ▾ → Hidden records only** shows them to
   **Restore**. Paper records must keep a PIC and project.
+  Flight records are kept for 3 years (`LOGDB_RETENTION_YEARS`): a log with a real flight, or a paper record, younger
+  than that cannot be deleted; hide it instead. Only an admin can still delete one, with a reason; **Logs → Manage ▾ →
+  Deleted records** lists those deletions. Ground runs, simulations and logs without flights can always be deleted.
   Use **Add paper record…** (Logbook, **Manage ▾**) to enter historical flights without logs. Admins use **Import CSV**;
   importing a corrected CSV again updates records matched by reference (e.g. flight number F00001)
   or by aircraft, date and takeoff time, after a preview of what each row will do.

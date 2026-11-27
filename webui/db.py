@@ -601,6 +601,22 @@ CREATE TABLE IF NOT EXISTS mail_prefs (    -- per person and kind: immediate | d
     mode TEXT NOT NULL CHECK(mode IN ('immediate','daily','off')),
     PRIMARY KEY (user_id, kind)
 );
+CREATE TABLE IF NOT EXISTS deleted_records (  -- retention.py: logs and paper records deleted within the retention period
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK(kind IN ('log','paper')),
+    record_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,        -- the record as it was (log: its flights too), for an audit
+    reason TEXT NOT NULL,
+    deleted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    deleted_by_name TEXT NOT NULL,      -- kept when the account is merged or deleted
+    deleted_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS deleted_records_kept_update BEFORE UPDATE OF kind, record_id, label, snapshot_json,
+    reason, deleted_by_name, deleted_at ON deleted_records
+BEGIN SELECT RAISE(ABORT, 'deleted records cannot be changed'); END;
+CREATE TRIGGER IF NOT EXISTS deleted_records_kept_delete BEFORE DELETE ON deleted_records
+BEGIN SELECT RAISE(ABORT, 'deleted records cannot be removed'); END;
 CREATE TABLE IF NOT EXISTS data_migrations (  -- one-time data fixes already done (db.init), by name
     name TEXT PRIMARY KEY,
     done_at TEXT NOT NULL

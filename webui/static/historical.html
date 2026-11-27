@@ -178,6 +178,11 @@ async function start() {
   syncPreflight();
   $('save').hidden = !editable;
   $('delete').hidden = !detail || !editable;
+  keptUntil = detail?.record.kept_until || null;
+  if (detail && keptUntil && !detail.is_admin) {  // within the retention period only administrators delete, with a reason
+    $('delete').disabled = true;
+    $('delete').title = `Kept until ${keptUntil}: flight records are kept for the retention period (EU 2019/947: 3 years). An administrator can hide it in the Logbook, or delete it with a reason.`;
+  }
   $('importSection').hidden = !!detail || !me.user.is_admin;
   if (!editable) $('status').textContent = detail ? 'Read-only: full project access is required to edit.' : 'Full access to a project is required to add records.';
 }
@@ -195,9 +200,13 @@ $('recordForm').onsubmit = async event => {
   } catch (error) { $('status').textContent = error.message; }
   finally { $('save').disabled = false; }
 };
+let keptUntil = null;
 $('delete').onclick = async () => {
   if (!confirm('Delete this paper record? This removes its contribution to flight totals, not the aircraft or people.')) return;
-  try { await api('/api/historical/' + recordId,{method:'DELETE'}); location.href='/'; }
+  const reason = keptUntil ? prompt(`This record is kept until ${keptUntil} (retention period); hiding it in the Logbook keeps it. Reason for deleting it anyway (kept with a copy of the record):`) : null;
+  if (keptUntil && reason === null) return;
+  try { await api('/api/historical/' + recordId,{method:'DELETE', headers:{'Content-Type':'application/json'},
+    body: keptUntil ? JSON.stringify({reason}) : null}); location.href='/'; }
   catch (error) { $('status').textContent=error.message; }
 };
 // The first submit shows what each row would do; the second one imports the checked file.

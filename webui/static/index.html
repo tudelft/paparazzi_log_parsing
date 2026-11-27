@@ -16,7 +16,7 @@
   header h1 { margin:0; font-size:18px; }
   header .meta { color:#9fb0c3; font-size:12px; }
   main { max-width:none; width:100%; margin:0; padding:16px 12px 20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; overflow:hidden; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:20px; }
   .scroll { overflow-x:auto; }
   button, .btn { font:inherit; background:var(--btn); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
   button.sec { background:var(--sec); color:var(--txt); }
@@ -45,6 +45,7 @@
   .detail h4 { margin:12px 0 6px; }
   .detail table th, .detail table td { padding:3px 8px; }
   .kv { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  table.deleted td { vertical-align:top; } table.deleted summary { cursor:pointer; }
   pre { background:#0f1720; color:#d6e2f0; padding:10px; border-radius:6px; max-height:260px; overflow:auto; font-size:12px; }
   .actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   #status { text-align:right; font-size:12px; color:var(--mute); padding:0 20px 20px; margin:0; }
@@ -88,6 +89,7 @@
           <button type="button" class="ext-item" role="menuitem" id="reparseAll" onclick="reparseOutdated()" title="Logs parsed with an older parser version, and failed ones">Re-parse outdated…</button>
           <button type="button" class="ext-item" role="menuitem" id="reparseUnknownDates" onclick="reparseUnknownDates()">Re-parse unknown dates…</button>
           <button type="button" class="ext-item" role="menuitem" id="acceptDateSuggestions" onclick="acceptDateSuggestions()" hidden title="Review the dates suggested for logs without a usable date">Review date suggestions</button>
+          <button type="button" class="ext-item" role="menuitem" onclick="showDeleted()" title="Logs and paper records deleted within the retention period, with the reason">Deleted records</button>
         </div></span>
     </div>
     <div class="scroll">
@@ -129,8 +131,14 @@
 <dialog class="entry-dialog" id="askDialog" aria-labelledby="askTitle" style="width:min(440px,calc(100% - 32px))">
   <div class="dialog-header"><h2 id="askTitle"></h2><button type="button" onclick="$('askDialog').close('no')">Close</button></div>
   <p id="askText" style="margin:0"></p>
+  <label class="field" id="askReasonLabel" hidden style="margin-top:10px">Reason<textarea id="askReason" rows="2" maxlength="1000" style="font:inherit"></textarea></label>
   <div style="display:flex;gap:8px;margin-top:14px"><button type="button" id="askOk" onclick="$('askDialog').close('yes')"></button>
     <button type="button" class="sec" id="askCancel" onclick="$('askDialog').close('no')">Cancel</button></div>
+</dialog>
+<dialog class="entry-dialog" id="deletedDialog" aria-labelledby="deletedTitle" style="width:min(820px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="deletedTitle">Deleted records</h2><button type="button" onclick="$('deletedDialog').close()">Close</button></div>
+  <p class="mute" style="margin:0 0 8px">Logs and paper records an administrator deleted within the retention period, with the reason and a copy of their details. This list cannot be changed.</p>
+  <div id="deletedList" class="scroll"></div>
 </dialog>
 <p id="status"></p>
 <div id="coUploaded" class="mute" hidden></div>
@@ -186,9 +194,11 @@ function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; window.vie
 function showAllLogs() { onlyLog = null; history.replaceState(history.state, '', location.pathname + location.search); logOffset = 0; window.viewState.save(true); refresh(); }
 function fillProjects() {}
 // A small dialog instead of confirm()/alert(): resolves true on OK (okLabel empty: a message with only Close).
-function ask(title, text, okLabel, danger = false) {
+function ask(title, text, okLabel, danger = false, reason = false) {
   $('askTitle').textContent = title;
   $('askText').textContent = text;
+  $('askReasonLabel').hidden = !reason;
+  $('askReason').value = '';
   $('askOk').hidden = !okLabel;
   $('askOk').textContent = okLabel || '';
   $('askOk').className = danger ? 'danger' : 'primary';
@@ -218,11 +228,18 @@ document.addEventListener('click', e => {
     const pop = b.nextElementSibling, open = pop.hidden;
     closeMenus();
     pop.hidden = !open; b.setAttribute('aria-expanded', String(open));
+    if (open && pop.closest('.scroll')) {  // in the table's scroll box, which would cut it off: fixed, above when no room
+      const r = b.getBoundingClientRect();
+      Object.assign(pop.style, {position: 'fixed', left: 'auto', right: (innerWidth - r.right) + 'px', top: (r.bottom + 6) + 'px'});
+      const h = pop.getBoundingClientRect().height;
+      if (r.bottom + 6 + h > innerHeight && r.top - 6 - h > 0) pop.style.top = (r.top - 6 - h) + 'px';
+    }
     return;
   }
   if (!e.target.closest('.menu-pop') || e.target.closest('.ext-item')) closeMenus();
 }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
+addEventListener('scroll', () => { if (document.querySelector('.scroll .menu-pop:not([hidden])')) closeMenus(); }, true);
 function filterStatus(value) { $('logStatus').value = value; logOffset = 0; window.viewState.save(true); refresh(); }
 fetch('/api/me').then(r => r.json()).then(async d => {
   me = d.user;
@@ -464,7 +481,9 @@ async function loadDetail(id) {
     <span class="menu-wrap" onclick="event.stopPropagation()"><button type="button" class="sec" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for log ${id}" title="Rare actions">⋯</button>
       <div class="menu-pop" role="menu" hidden>
         <button type="button" class="ext-item" role="menuitem" onclick="reparse(${id})">Re-parse</button>
-        ${l.can_delete ? `<button type="button" class="ext-item danger-item" role="menuitem" onclick="del(${id})">Delete log…</button>` : ''}
+        ${!l.can_delete ? '' : l.kept_until && !me?.is_admin
+          ? `<button type="button" class="ext-item" role="menuitem" disabled title="Kept until ${esc(l.kept_until)}. Flight records are kept for the retention period (EU 2019/947: 3 years); an administrator can hide its flights in the Logbook, or delete it with a reason">Delete log…</button>`
+          : `<button type="button" class="ext-item danger-item" role="menuitem" onclick="del(${id}, ${l.kept_until ? `'${esc(l.kept_until)}'` : 'null'})">Delete log…</button>`}
       </div></span></div>`;
   const el = $('d' + id);
   if (el && detailHtml.get(id) !== h) el.innerHTML = h;  // unchanged details stay as they are (no flicker)
@@ -472,11 +491,24 @@ async function loadDetail(id) {
 }
 
 async function reparse(id) { await fetch(`/api/logs/${id}/reparse`, {method: 'POST'}); refresh(); }
-async function del(id) {
-  if (!await ask('Delete log', `Delete log ${id} and its parsed data? Flights from it disappear from the logbook.`, 'Delete log', true)) return;
-  const r = await fetch('/api/logs/' + id, {method: 'DELETE'});
+// Within the retention period only administrators delete a log, with a reason that is kept (Deleted records).
+async function del(id, keptUntil) {
+  const text = `Delete log ${id} and its parsed data? Flights from it disappear from the logbook.` + (keptUntil
+    ? ` Its flights are kept until ${keptUntil} (retention period): hiding them in the Logbook keeps the record. To delete it anyway, give the reason; it is kept with a copy of the log's details.` : '');
+  if (!await ask('Delete log', text, 'Delete log', true, !!keptUntil)) return;
+  const r = await fetch('/api/logs/' + id, {method: 'DELETE', headers: {'Content-Type': 'application/json'},
+    body: keptUntil ? JSON.stringify({reason: $('askReason').value.trim()}) : null});
   if (r.ok) expanded.delete(id);
+  else $('status').textContent = (await r.json().catch(() => ({}))).error || 'Could not delete the log.';
   refresh();
+}
+async function showDeleted() {
+  const d = await fetch('/api/admin/deleted-records').then(r => r.json());
+  $('deletedList').innerHTML = d.records.length ? `<table class="deleted"><thead><tr><th>Deleted</th><th>By</th><th>Record</th><th>Reason</th></tr></thead><tbody>`
+    + d.records.map(r => `<tr><td>${esc(r.deleted_at.slice(0, 16).replace('T', ' '))}</td><td>${esc(r.deleted_by_name)}</td>
+      <td><details><summary>${esc(r.label)}</summary><pre>${esc(JSON.stringify(r.snapshot, null, 1))}</pre></details></td><td>${esc(r.reason)}</td></tr>`).join('')
+    + '</tbody></table>' : '<p class="mute">No log or paper record was deleted within the retention period.</p>';
+  $('deletedDialog').showModal();
 }
 async function reparseOutdated() {
   if (!await ask('Re-parse outdated', 'Re-parse every log parsed with an older parser version, and the failed ones?', 'Re-parse')) return;
