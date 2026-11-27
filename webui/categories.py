@@ -7,16 +7,17 @@ category and a validity period; choosing one on a flight also sets its category.
 The category of a logbook entry is, in this order:
 1. set on the flight or on the paper record ("flight");
 2. indoor flight, e.g. in a hall ("indoor");
-3. the default of its project ("project");
-4. the default of its takeoff place, e.g. a site that needs an authorisation ("place");
-5. the date ("date"): every flight before EU_RULES_FROM was under national rules. For our own operations, the
-   catalog decides: a national authorisation valid that day (the newest if several) gives national rules; on a day
-   no authorisation of ours was valid, the flight can only have been OPEN; while an EU authorisation was valid it
-   can be OPEN or SPECIFIC, so it stays unknown. Exemptions (such as a one-off BVLOS exemption) only apply where
-   they are set (1-4) and are left out of the date rule;
-6. otherwise unknown.
-Only 1 is stored per flight, so defaults follow when a project, place or the catalog changes. Our own entries that
-need a look are marked with a check: SPECIFIC without an authorisation, or a date outside the authorisation's
+3. chosen for the planned slot (Plan flight) whose team the flight matched ("booking");
+4. the default of its project ("project");
+5. the default of its takeoff place, e.g. a site that needs an authorisation ("place"); when the project says OPEN and
+   the place something else, the place goes first;
+6. old flights by date ("date"): every flight before EU_RULES_FROM was under national rules, and for our own
+   operations a national authorisation valid that day (the newest if several) gives national rules with it;
+7. otherwise OPEN ("default"). Only a flight without a known date stays unknown.
+An authorisation from 3-5 only counts on the days it is valid; outside them the next rule applies. Exemptions (such as
+a one-off BVLOS exemption) only apply where they are set (1-5) and are left out of the date rule.
+Only 1 is stored per flight, so defaults follow when a slot, project, place or the catalog changes. Our own entries
+that need a look are marked with a check: SPECIFIC without an authorisation, or a date outside the authorisation's
 validity."""
 
 import sqlite3
@@ -27,9 +28,9 @@ import operators
 CATEGORIES = {"national": "National rules (ROC / ROC-light)", "open": "OPEN", "specific": "SPECIFIC",
               "luc": "LUC", "indoor": "Indoor"}
 AUTHORISED = ("national", "specific", "luc")  # categories an authorisation can have
-SOURCES = ("flight", "indoor", "project", "place", "date")
+SOURCES = ("flight", "indoor", "booking", "project", "place", "date", "default")
 EU_RULES_FROM = "2020-12-31"  # Regulation (EU) 2019/947 applies; before it only national rules existed
-TABLES = ("flights", "flight_records", "projects", "places")
+TABLES = ("flights", "flight_records", "projects", "places", "operation_teams")
 
 
 class CategoryError(ValueError):
@@ -114,7 +115,7 @@ def save(con, values, stamp, authorisation_id=None):
 def usage(con, authorisation_id):
     return {label: con.execute(f"SELECT COUNT(*) FROM {table} WHERE authorisation_id=?", (authorisation_id,)).fetchone()[0]
             for label, table in (("flights", "flights"), ("paper records", "flight_records"),
-                                 ("projects", "projects"), ("places", "places"))}
+                                 ("projects", "projects"), ("places", "places"), ("planned slots", "operation_teams"))}
 
 
 def parse(con, body):
@@ -155,10 +156,20 @@ def _day_of(r):
     return day[:10] or None
 
 
-def apply(con, rows, flight_categories):
+def preferred(project, place):
+    """The project and place candidates in the order they apply: the project first, unless it says OPEN and the place
+    says something else, which then wins."""
+    if project[1] and project[1][0] == "open" and place[1] and place[1][0] != "open":
+        return place, project
+    return project, place
+
+
+def apply(con, rows, flight_categories, booked=None):
     """Add category, category_label, authorisation_id, authorisation_name, category_source and category_check to
     logbook rows (after operators.apply). flight_categories maps flight ids to (category, authorisation_id) set on
-    that flight; paper rows and the paper records folded into an entry carry their own."""
+    that flight; paper rows and the paper records folded into an entry carry their own. booked maps the flight id of
+    an entry to what its planned slot chose (operations.chosen): (operator id, category, authorisation id)."""
+    booked = booked or {}
     auths = {a["id"]: a for a in catalog(con)}
     own = {r[0] for r in con.execute("SELECT id FROM operators WHERE own=1")}
     ours = [a for a in auths.values() if (a["operator_id"] is None or a["operator_id"] in own) and not a["exemption"]]
@@ -178,14 +189,17 @@ def apply(con, rows, flight_categories):
             covering = sorted((a for a in ours if valid(a, day)), key=lambda a: a["valid_from"] or "")
             if covering and covering[-1]["category"] == "national":
                 dated = ("national", covering[-1]["id"])
-            elif not covering and day >= EU_RULES_FROM:
-                dated = ("open", None)
         if dated is None and day and day < EU_RULES_FROM:
             dated = ("national", None)
+        default = ("open", None) if day else None
+        slot = booked.get(r.get("flight_id")) or (None, None, None)
+        # a default (slot, project, place) naming an authorisation only counts on the days it is valid
+        current = lambda c: c if c and not (day and c[1] in auths and not valid(auths[c[1]], day)) else None  # noqa: E731
         candidates = ([("flight", c) for c in explicit] + [("indoor", ("indoor", None) if r.get("indoor") else None),
-                                                           ("project", projects.get(r.get("project_id"))),
-                                                           ("place", places.get(r.get("takeoff_place_id"))),
-                                                           ("date", dated)])
+                                                           ("booking", current((slot[1], slot[2]) if slot[1] else None)),
+                                                           *preferred(("project", current(projects.get(r.get("project_id")))),
+                                                                      ("place", current(places.get(r.get("takeoff_place_id"))))),
+                                                           ("date", dated), ("default", default)])
         source, (category, auth_id) = next(((s, c) for s, c in candidates if c), (None, (None, None)))
         auth = auths.get(auth_id)
         r["category"] = category

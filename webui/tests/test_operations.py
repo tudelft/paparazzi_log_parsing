@@ -349,6 +349,53 @@ class OperationsTests(AppTests):
         self.con.commit()
         self.assertEqual(operations.flight_decisions(self.con).get(12), None)
 
+    def test_a_slot_chooses_the_category_of_its_flights_for_who_may(self):
+        oa = self.con.execute("INSERT INTO authorisations(name,category,valid_from,valid_until,created_at)"
+                              " VALUES ('OA-9','specific','2020-01-01',NULL,'now')").lastrowid
+        old = self.con.execute("INSERT INTO authorisations(name,category,valid_from,valid_until,created_at)"
+                               " VALUES ('OA-old','specific','2020-01-01','2021-01-01','now')").lastrowid
+        pilot = self.qualification("SPECIFIC pilot", user_id=2)
+        self.sign_in(1)
+        r = self.client.put(f"/api/admin/authorisations/{oa}", json={"qualification_types": [pilot]})
+        self.assertEqual(r.status_code, 200, r.json)
+        self.assertEqual(self.client.put("/api/admin/categories/luc", json={"qualification_types": [pilot]}).status_code, 200)
+        self.assertEqual(self.client.put("/api/admin/categories/open", json={"qualification_types": [pilot]}).status_code, 404)
+        listed = self.client.get("/api/authorisations").json
+        self.assertEqual((listed["category_rules"]["luc"], [a["qualification_types"] for a in listed["authorisations"]
+                                                            if a["id"] == oa][0]), ([pilot], [pilot]))
+        self.sign_in(3)  # without the qualification: OPEN only
+        self.assertFalse(self.client.get("/api/authorisations").json["may_choose_categories"]["luc"])
+        self.assertEqual(self.plan(pic_id=3, authorisation_id=oa).status_code, 403)
+        self.assertEqual(self.plan(pic_id=3, category="open").status_code, 201)
+        self.sign_in(2)
+        self.assertEqual(self.plan(authorisation_id=old).status_code, 400)  # not valid that day
+        self.assertEqual(self.plan(pic_id=3, authorisation_id=oa).status_code, 403)  # the PIC needs it too
+        r = self.plan(authorisation_id=oa)
+        self.assertEqual(r.status_code, 201, r.json)
+        team, = [t for t in self.client.get(f"/api/operations/{r.json['id']}").json["teams"] if t["pic_id"] == 2]
+        self.assertEqual((team["category"], team["authorisation_id"]), ("specific", oa))
+        self.flight(11, "10:30", pic=2)  # matched to the team: its category
+        self.flight(12, "16:00", pic=2)  # after the slot: the default
+        self.con.execute("UPDATE logs SET date_override=? WHERE id=12", (DAY,))  # a future day: no plausible clock
+        self.con.commit()
+        rows = self.client.get("/api/logbook").json
+        rows = rows["rows"] if isinstance(rows, dict) else rows
+        got = {r["flight_id"]: (r["category"], r["authorisation_name"], r["category_source"]) for r in rows}
+        self.assertEqual((got[11], got[12]), (("specific", "OA-9", "booking"), ("open", None, "default")))
+        # an exception in Edit flight: the editor and the flight's PIC need what it asks
+        self.assertEqual(self.client.put("/api/logbook/records", json={"record_keys": ["log:12"], "category": "luc"})
+                         .status_code, 200)
+        self.con.execute("UPDATE flights SET pic_user_id=3 WHERE id=11")
+        self.con.commit()
+        r = self.client.put("/api/logbook/records", json={"record_keys": ["log:11"], "category": "luc"})
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("The PIC (Viewer) needs", r.json["error"])
+        self.assertEqual(self.client.put("/api/logbook/records", json={"record_keys": ["log:11"], "category": None})
+                         .status_code, 200)  # back to the default is always allowed
+        self.sign_in(1)  # administrators may always
+        self.assertEqual(self.client.put("/api/logbook/records", json={"record_keys": ["log:11"], "category": "luc"})
+                         .status_code, 200)
+
     def booking_mails(self):
         return self.con.execute("SELECT * FROM mail_outbox WHERE kind='booking' ORDER BY id").fetchall()
 

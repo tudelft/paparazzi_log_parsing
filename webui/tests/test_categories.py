@@ -58,7 +58,7 @@ class CategoryTests(LinkFixtures):
         self.assertEqual(put(1, authorisation_id=3).status_code, 200)
         self.assertEqual(self.category_of(flight_id=1)[:2], ("specific", "OA-1"))
 
-    def test_the_date_gives_national_rules_open_or_unknown(self):
+    def test_the_date_gives_national_rules_for_old_flights_and_open_after(self):
         self.flight(1, "12:00:00")
         self.on(1, "2016-06-01")
         self.assertEqual(self.category_of(flight_id=1), ("national", None, "date"))  # before the ROCs
@@ -66,14 +66,14 @@ class CategoryTests(LinkFixtures):
         self.assertEqual(self.category_of(flight_id=1), ("national", "ROC-light", "date"))
         self.on(1, "2019-03-01")  # both valid: the newest one
         self.assertEqual(self.category_of(flight_id=1), ("national", "ROC", "date"))
-        self.on(1, "2022-03-01")  # no authorisation of ours: only OPEN was possible
-        self.assertEqual(self.category_of(flight_id=1), ("open", None, "date"))
-        self.on(1, "2023-03-01")  # an EU authorisation was valid: OPEN or SPECIFIC
-        self.assertEqual(self.category_of(flight_id=1), (None, None, None))
+        self.on(1, "2022-03-01")  # no authorisation of ours: OPEN
+        self.assertEqual(self.category_of(flight_id=1), ("open", None, "default"))
+        self.on(1, "2023-03-01")  # an EU authorisation was valid: still OPEN unless a slot, project or place says so
+        self.assertEqual(self.category_of(flight_id=1), ("open", None, "default"))
         self.assertIsNone(self.entry(flight_id=1)["category_check"])
         self.con.execute("UPDATE flights SET operator_id=2 WHERE id=1")  # not ours: our catalog says nothing
         self.on(1, "2022-03-01")
-        self.assertEqual(self.category_of(flight_id=1), (None, None, None))
+        self.assertEqual(self.category_of(flight_id=1), ("open", None, "default"))
         self.on(1, "2019-03-01")
         self.assertEqual(self.category_of(flight_id=1), ("national", None, "date"))
 
@@ -81,7 +81,7 @@ class CategoryTests(LinkFixtures):
         self.con.execute("DELETE FROM authorisations")
         self.flight(1, "12:00:00")
         self.on(1, "2022-03-01")
-        self.assertEqual(self.category_of(flight_id=1), (None, None, None))
+        self.assertEqual(self.category_of(flight_id=1), ("open", None, "default"))
         self.on(1, "2020-12-30")
         self.assertEqual(self.category_of(flight_id=1), ("national", None, "date"))
 
@@ -90,8 +90,15 @@ class CategoryTests(LinkFixtures):
         self.on(1, "2023-03-01")
         self.con.execute("UPDATE places SET category='specific', authorisation_id=3 WHERE id=1")
         self.assertEqual(self.category_of(flight_id=1), ("specific", "OA-1", "place"))
-        self.con.execute("UPDATE projects SET category='open' WHERE id=1")
-        self.assertEqual(self.category_of(flight_id=1), ("open", None, "project"))
+        self.con.execute("UPDATE projects SET category='open' WHERE id=1")  # OPEN on the project: the place's wins
+        self.assertEqual(self.category_of(flight_id=1), ("specific", "OA-1", "place"))
+        self.con.execute("UPDATE projects SET category='luc' WHERE id=1")  # both say something else: the project's
+        self.assertEqual(self.category_of(flight_id=1), ("luc", None, "project"))
+        self.on(1, "2024-03-01")  # the place's authorisation only counts while valid; the project's LUC still applies
+        self.con.execute("UPDATE projects SET category=NULL WHERE id=1")
+        self.assertEqual(self.category_of(flight_id=1), ("open", None, "default"))
+        self.on(1, "2023-03-01")
+        self.con.execute("UPDATE projects SET category='luc' WHERE id=1")
         self.con.execute("UPDATE places SET indoor=1 WHERE id=1")
         self.assertEqual(self.category_of(flight_id=1), ("indoor", None, "indoor"))
         self.con.execute("UPDATE flights SET category='specific', authorisation_id=3 WHERE id=1")

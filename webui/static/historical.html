@@ -125,7 +125,7 @@ async function api(url, options) {
 let operatorCatalog = [];
 function fillOperators() {
   options('operator_id', operatorCatalog, operatorLabel);
-  $('operator_id').options[0].text = 'Own operator, or the project / location / PIC default';
+  $('operator_id').options[0].text = 'Default (PIC, project, location, else our own)';
   $('operator_id').insertAdjacentHTML('beforeend', NEW_OPERATOR_OPTION);
 }
 function options(id, rows, name) {
@@ -159,7 +159,7 @@ async function start() {
   $('preflight_special').title = PREFLIGHT_SPECIAL_HELP;
   tagField = tagInput($('tagsBox'), {values: detail?.record.tags || []});
   indoorPlaces = new Set(catalogs.places.filter(r => r.indoor).map(r => String(r.id)));
-  $('category').innerHTML = '<option value="">From the project / location / date</option>' + categoryOptions(catalogs.authorisations || [], '');
+  $('category').innerHTML = '<option value="">Default (project, location, date, else OPEN)</option>' + categoryOptions(catalogs.authorisations || [], '');
   operatorCatalog = catalogs.operators;
   fillOperators();
   const editable = detail ? detail.can_edit : catalogs.projects.length > 0;

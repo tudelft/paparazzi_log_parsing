@@ -54,6 +54,7 @@ import links
 import date_suggest
 import operators
 import categories
+import choices
 import countries
 import profiles
 import welcome
@@ -3252,8 +3253,20 @@ def admin_delete_place(place_id):
 
 @app.get("/api/operators")
 def list_operators():
-    """UAS operators flights can be flown under (operators.py); a reference catalog, like projects."""
-    return jsonify(operators=operators.catalog(conn()), admin=bool(g.user["is_admin"]), countries=countries.choices())
+    """UAS operators flights can be flown under (operators.py); a reference catalog, like projects. Each with the
+    qualification types needed to choose it (choices.py) and whether the signed-in person may."""
+    con = conn()
+    rules, may = choices.rules(con), choices.allowed(con, g.user)["operators"]
+    catalog = [dict(o, qualification_types=rules.get(("operator", str(o["id"])), []), may_choose=may.get(o["id"], True))
+               for o in operators.catalog(con)]
+    return jsonify(operators=catalog, admin=bool(g.user["is_admin"]), countries=countries.choices(),
+                   qualification_types=qualification_type_list(con))
+
+
+def qualification_type_list(con):
+    """The active qualification types, for the "Who may choose" fields."""
+    return [dict(r) for r in con.execute("SELECT id, name, grp FROM qualification_types WHERE active=1"
+                                         " ORDER BY sort_order, name COLLATE NOCASE")]
 
 
 @app.post("/api/operators")
@@ -3264,10 +3277,15 @@ def add_operator():
     body = request.get_json(silent=True)
     if isinstance(body, dict) and body.get("own") and not g.user["is_admin"]:
         return jsonify(error="Only an administrator can mark our own operator."), 403
+    if isinstance(body, dict) and body.get("qualification_types") and not g.user["is_admin"]:
+        return jsonify(error="Only an administrator decides who may choose an operator."), 403
     con = conn()
     try:
         operator_id = operators.save(con, operators.validate(con, body), now())
-    except operators.OperatorError as exc:
+        if isinstance(body, dict) and "qualification_types" in body:
+            choices.set_types(con, "operator", operator_id, choices.parse_types(con, body["qualification_types"]))
+    except (operators.OperatorError, choices.ChoiceError) as exc:
+        con.rollback()
         return jsonify(error=str(exc)), exc.status
     con.commit()
     return jsonify(id=operator_id), 201
@@ -3280,10 +3298,14 @@ def admin_save_operator(operator_id=None):
     con = conn()
     if operator_id is not None and not con.execute("SELECT 1 FROM operators WHERE id=?", (operator_id,)).fetchone():
         return jsonify(error="no such operator"), 404
+    body = request.get_json(silent=True)
     try:
-        values = operators.validate(con, request.get_json(silent=True), operator_id)
+        values = operators.validate(con, body, operator_id)
         operator_id = operators.save(con, values, now(), operator_id)
-    except operators.OperatorError as exc:
+        if "qualification_types" in body:  # who may choose it (choices.py)
+            choices.set_types(con, "operator", operator_id, choices.parse_types(con, body["qualification_types"]))
+    except (operators.OperatorError, choices.ChoiceError) as exc:
+        con.rollback()
         return jsonify(error=str(exc)), exc.status
     con.commit()
     return jsonify(id=operator_id)
@@ -3299,6 +3321,7 @@ def admin_delete_operator(operator_id):
     if used:
         return jsonify(error="This operator is used by " + ", ".join(f"{n} {label}" for label, n in used.items())
                        + ". Choose another operator there first."), 409
+    choices.forget(con, "operator", operator_id)
     con.execute("DELETE FROM operators WHERE id=?", (operator_id,))
     con.commit()
     return jsonify(ok=True)
@@ -3310,12 +3333,34 @@ def list_authorisations():
     con = conn()
     used = {}  # where each authorisation is set by hand (flights by the date rule are not counted)
     for table, key in (("flights", "flights"), ("flight_records", "paper_records"), ("projects", "projects"),
-                       ("places", "locations")):
+                       ("places", "locations"), ("operation_teams", "planned_slots")):
         for row in con.execute(f"SELECT authorisation_id, COUNT(*) FROM {table} WHERE authorisation_id IS NOT NULL"
                                " GROUP BY authorisation_id"):
             used.setdefault(row[0], {})[key] = row[1]
-    catalog = [dict(a, used=used.get(a["id"], {})) for a in categories.catalog(con)]
-    return jsonify(authorisations=catalog, categories=categories.CATEGORIES, admin=bool(g.user["is_admin"]))
+    rules, may = choices.rules(con), choices.allowed(con, g.user)  # who may choose each (choices.py)
+    catalog = [dict(a, used=used.get(a["id"], {}), qualification_types=rules.get(("authorisation", str(a["id"])), []),
+                    may_choose=may["authorisations"].get(a["id"], True)) for a in categories.catalog(con)]
+    category_rules = {key: rules.get(("category", key), []) for key in categories.CATEGORIES}
+    return jsonify(authorisations=catalog, categories=categories.CATEGORIES, admin=bool(g.user["is_admin"]),
+                   category_rules=category_rules, may_choose_categories=may["categories"],
+                   free_categories=list(choices.FREE_CATEGORIES), qualification_types=qualification_type_list(con))
+
+
+@app.put("/api/admin/categories/<key>")
+def admin_category_rule(key):
+    """Who may choose a category (choices.py): {"qualification_types": [ids]}; [] = everyone. OPEN is always free."""
+    admin_required()
+    if key not in categories.CATEGORIES or key in choices.FREE_CATEGORIES:
+        return jsonify(error="No such category, or one everyone may choose."), 404
+    con = conn()
+    try:
+        choices.set_types(con, "category", key, choices.parse_types(con, (request.get_json(silent=True) or {})
+                                                                    .get("qualification_types")))
+    except choices.ChoiceError as exc:
+        con.rollback()
+        return jsonify(error=str(exc)), exc.status
+    con.commit()
+    return jsonify(ok=True)
 
 
 @app.post("/api/admin/authorisations")
@@ -3326,10 +3371,15 @@ def admin_save_authorisation(authorisation_id=None):
     if authorisation_id is not None and not con.execute(
             "SELECT 1 FROM authorisations WHERE id=?", (authorisation_id,)).fetchone():
         return jsonify(error="no such authorisation"), 404
+    body = request.get_json(silent=True)
     try:
-        values = categories.validate(con, request.get_json(silent=True), authorisation_id)
+        values = categories.validate(con, body, authorisation_id)
         authorisation_id = categories.save(con, values, now(), authorisation_id)
-    except categories.CategoryError as exc:
+        if "qualification_types" in body:  # who may choose it (choices.py)
+            choices.set_types(con, "authorisation", authorisation_id,
+                              choices.parse_types(con, body["qualification_types"]))
+    except (categories.CategoryError, choices.ChoiceError) as exc:
+        con.rollback()
         return jsonify(error=str(exc)), exc.status
     con.commit()
     return jsonify(id=authorisation_id)
@@ -3345,6 +3395,7 @@ def admin_delete_authorisation(authorisation_id):
     if used:
         return jsonify(error="This authorisation is used by " + ", ".join(f"{n} {label}" for label, n in used.items())
                        + ". Choose another one there first."), 409
+    choices.forget(con, "authorisation", authorisation_id)
     con.execute("DELETE FROM authorisations WHERE id=?", (authorisation_id,))
     con.commit()
     return jsonify(ok=True)
@@ -4749,6 +4800,18 @@ def set_flights_crew():
     return jsonify(ok=True, updated=len(ids))
 
 
+def flight_pic_id(con, flight_id, resolve):
+    """The person who is PIC of a logged flight: set by hand, else matched from the name in the log (or the uploader)."""
+    r = con.execute("SELECT f.pic_user_id, a.pic, l.uploaded_by FROM flights f JOIN aircraft a ON a.id=f.aircraft_id"
+                    " JOIN logs l ON l.id=a.log_id WHERE f.id=?", (flight_id,)).fetchone()
+    if r is None:
+        return None
+    if r["pic_user_id"]:
+        return r["pic_user_id"]
+    person = resolve("pic", r["pic"], r["uploaded_by"])
+    return person["id"] if person else None
+
+
 @app.put("/api/logbook/records")
 def update_logbook_records():
     """Atomically edit mixed logbook sources, or hide/restore them without deleting data. An admin's API key may
@@ -4824,6 +4887,19 @@ def update_logbook_records():
                     changes["category"] = categories.parse(con, changes["category"])
                 except categories.CategoryError as exc:
                     raise historical.RecordError(str(exc)) from None
+            # who may choose this operator or category (choices.py): the person editing and each entry's PIC
+            choice = {}
+            if "operator_id" in changes:
+                choice["operator_id"] = changes["operator_id"]
+            if "category" in changes:
+                choice["category"], choice["authorisation_id"] = changes["category"]
+            resolve = person_resolver(con) if choice else None
+
+            def may_choose(pic_id):
+                try:
+                    choices.check(con, g.user, pic_id, **choice)
+                except choices.ChoiceError as exc:
+                    raise historical.RecordError(str(exc), exc.status) from None
             log_flights = set()
             for kind, identity in sorted(targets):
                 if kind == "paper":
@@ -4836,6 +4912,8 @@ def update_logbook_records():
                         values["category"], values["authorisation_id"] = changes["category"]
                     if values["pic_user_id"] is None or values["project_id"] is None:
                         raise historical.RecordError("Paper records require a PIC and project; choose Keep or a person/project.")
+                    if choice:
+                        may_choose(values["pic_user_id"])
                     if any(key != "hidden" for key in changes):
                         historical.store(con, values, g.user["id"], now(), identity)
                     if tag_change["add"] or tag_change["remove"]:
@@ -4846,6 +4924,8 @@ def update_logbook_records():
                     _, err = visible_editable_flight(con, identity)
                     if err:
                         raise historical.RecordError("No such editable flight.", 404 if err == "missing" else 403)
+                    if choice:
+                        may_choose(changes["pic_user_id"] if "pic_user_id" in changes else flight_pic_id(con, identity, resolve))
                     if "project_id" in changes:
                         msg, code = apply_flight_project(con, identity, changes["project_id"])
                         if msg:
@@ -7036,6 +7116,19 @@ def set_record_tags(con, record_id, body):
             raise historical.RecordError(str(exc), exc.status) from None
 
 
+def check_record_choice(con, values, row=None):
+    """A paper record's operator or category, when new or changed, must be one the editor and its PIC may choose."""
+    choice = {}
+    if row is None or values.get("operator_id") != row["operator_id"]:
+        choice["operator_id"] = values.get("operator_id")
+    if row is None or (values.get("category"), values.get("authorisation_id")) != (row["category"], row["authorisation_id"]):
+        choice.update(category=values.get("category"), authorisation_id=values.get("authorisation_id"))
+    try:
+        choices.check(con, g.user, values.get("pic_user_id"), **choice)
+    except choices.ChoiceError as exc:
+        raise historical.RecordError(str(exc), exc.status) from None
+
+
 @app.post("/api/historical")
 def create_historical():
     # API keys may add paper records (scripted transcription of old logbooks); changing and deleting
@@ -7046,6 +7139,7 @@ def create_historical():
             con.execute("BEGIN IMMEDIATE")
             values = historical.validate(con, g.user, request.get_json(silent=True))
             historical.require_preflight(con, values)
+            check_record_choice(con, values)
             record_id = historical.store(con, values, g.user["id"], now())
             set_record_tags(con, record_id, request.get_json(silent=True))
             links.auto_link(con, now())
@@ -7089,6 +7183,7 @@ def historical_record(record_id):
                                                   dict(row), reason, g.user, now())
                     con.execute("DELETE FROM flight_records WHERE id=?", (record_id,))
                 else:
+                    check_record_choice(con, values, row)
                     historical.store(con, values, g.user["id"], now(), record_id)
                     set_record_tags(con, record_id, request.get_json(silent=True))
                     links.auto_link(con, now())
@@ -7484,8 +7579,10 @@ def build_logbook_rows(hidden=False, hide_unlinked=False):
         r["date_ok"] = bool(r.get("date_override")) or not clock_implausible(r.get("log_start_utc"))
     out.extend(historical.rows(con, g.user, request.args.get("project"), hidden=hidden))
     out = links.combine(con, add_people(out, person_resolver(con)))
-    operators.apply(con, out, {r["flight_id"]: r["operator_id"] for r in prepared if r["operator_id"]})
-    categories.apply(con, out, {r["flight_id"]: (r["category"], r["authorisation_id"]) for r in prepared if r["category"]})
+    booked = operations.chosen(con, out)  # what a planned slot chose for its flights (Plan flight)
+    operators.apply(con, out, {r["flight_id"]: r["operator_id"] for r in prepared if r["operator_id"]}, booked)
+    categories.apply(con, out, {r["flight_id"]: (r["category"], r["authorisation_id"]) for r in prepared if r["category"]},
+                     booked)
     apply_preflight(con, out, source_rows)
     tags.apply(out, {fid: tags.ids_of(r["tags"]) for fid, r in source_rows.items()},
                {r["id"]: tags.ids_of(r["tags"]) for r in con.execute("SELECT id, tags FROM flight_records WHERE tags IS NOT NULL")},

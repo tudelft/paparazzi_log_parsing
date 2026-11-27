@@ -247,9 +247,9 @@ function askName(mode, label, value, indoor = false, operatorId = null, category
   syncBookable();
   $('placeCountrySet').innerHTML = '<option value="">—</option>' + (placeData.countries || []).map(([code, name]) =>
     `<option value="${code}"${code === country ? ' selected' : ''}>${esc(code)} · ${esc(name)}</option>`).join('');
-  $('placeOperator').innerHTML = '<option value="">Own operator, or the project\'s</option>' + operators.map(o =>
+  $('placeOperator').innerHTML = '<option value="">No preference: the project\'s, else our own</option>' + operators.map(o =>
     `<option value="${o.id}"${o.id === operatorId ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('');
-  $('placeCategory').innerHTML = '<option value="">From the project or date</option>' + categoryOptions(authorisations, category);
+  $('placeCategory').innerHTML = '<option value="">No preference: the project\'s, else OPEN</option>' + categoryOptions(authorisations, category);
   $('nameLabel').textContent = label;
   $('placeName').value = value;
   $('nameError').textContent = '';
@@ -548,8 +548,8 @@ function renderPanel() {
   $('placeDetails').innerHTML = `
     ${row('placeCountrySet', 'Country', p.country ? esc(p.country + ' · ' + countryName(p.country)) : '')}
     ${row('placeIndoor', 'Indoors', p.indoor ? '<span title="Flights here count as indoor">Yes</span>' : 'No')}
-    ${row('placeOperator', 'Operator', esc(operatorName(p.operator_id) || '') || '<span class="mute">Own operator, or the project\'s</span>')}
-    ${row('placeCategory', 'Category', esc(categoryText(p)) || '<span class="mute">From the project or date</span>')}
+    ${row('placeOperator', 'Operator', esc(operatorName(p.operator_id) || '') || '<span class="mute">No preference: the project\'s, else our own</span>')}
+    ${row('placeCategory', 'Category', esc(categoryText(p)) || '<span class="mute">No preference: the project\'s, else OPEN</span>')}
     ${placeData.operations && !p.indoor ? row('placeBookable', 'Outdoor operations', p.bookable ? 'Bookable' : 'Not bookable') : ''}
     ${placeData.operations && p.bookable ? row('placeMaxHeight', 'Maximum height', p.max_height_m ? p.max_height_m + ' m' : '') : ''}
     ${placeData.operations && p.bookable ? row('placeBookingMode', 'External booking', p.booking_mode === 'mail'
