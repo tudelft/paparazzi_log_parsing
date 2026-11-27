@@ -65,6 +65,8 @@
   .people-picks { display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow:auto; padding:2px; }
   .people-picks .flag-chip { font-size:12px; }
   .bk.moving { opacity:.45; }
+  .bk .order { display:inline-block; font-size:10px; font-weight:600; border-radius:8px; padding:0 5px; margin-right:4px;
+    background:color-mix(in srgb, var(--warn) 22%, var(--card)); color:var(--warn); vertical-align:1px; }
   .ghost { position:absolute; left:2px; right:2px; border-radius:5px; background:color-mix(in srgb, var(--acc) 25%, transparent);
     border:1px dashed var(--acc); font-size:11px; padding:1px 4px; pointer-events:none; color:var(--txt); }
   .flag-chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -164,7 +166,7 @@
         <div class="menu-pop" id="manageMenu" role="menu" hidden>
           <button type="button" class="ext-item" role="menuitem" onclick="openItem()">Add bookable item…</button>
         </div></span>
-      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day to book that time (a click books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item overlap only when both set a shared option (for example "Others allowed") and neither sets a blocking one (for example "Demo"); an item without options never overlaps. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></details>
+      <details><summary>Help</summary><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's. With one item there are no tabs. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all. Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>Manage ▾</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></details>
     </div>
     <div class="page-tabs" id="tabs" aria-label="Bookable items"></div>
     <p id="about"></p>
@@ -240,7 +242,11 @@
     <div class="field" id="approverField" style="display:flex;flex-direction:column;gap:4px"><span class="mute" style="font-size:12px">Approvers besides administrators (optional)</span>
       <input type="search" id="approverSearch" placeholder="Find a person" aria-label="Find an approver" oninput="paintApprovers()">
       <div class="people-picks" id="approverPicks"></div></div>
-    <div id="flagSection" style="display:contents"><span class="mute">Booking options (a booking may tick them; with a colour they show as a coloured tag)</span>
+    <div id="flagSection" style="display:contents">
+    <label class="field">Overlapping bookings<select name="exclusive">
+      <option value="0">Allowed, unless a booking ticks an option that blocks overlaps</option>
+      <option value="1">Only when both bookings tick the same option (that does not block)</option></select></label>
+    <span class="mute">Booking options (a booking may tick them; with a colour they show as a coloured tag)</span>
     <div id="flagRows"></div>
     <div><button type="button" class="sec" onclick="addFlagRow()">Add option</button></div></div>
     <p class="dialog-error" id="itemError" role="alert"></p>
@@ -499,7 +505,18 @@ function paint(scroll) {
   let html = '<div class="dh"></div>' + days.map((day, i) =>
     `<div class="dh${day === today ? ' today' : ''}">${DAY[i]} ${+day.slice(8)}</div>`).join('');
   html += '<div>' + [...Array(hours)].map((_, i) => `<div class="hl">${pad(first + i)}:00</div>`).join('') + '</div>';
+  // Overlapping bookings of one item: 2nd, 3rd, … by when they were booked (the first one has no badge)
+  const order = new Map();
+  for (const b of shown) {
+    if (b.operation || b.status === 'rejected') continue;
+    const before = shown.filter(o => o !== b && !o.operation && o.status !== 'rejected' && o.thing_id === b.thing_id
+      && o.start < b.end && o.end > b.start && (o.created_at < b.created_at || (o.created_at === b.created_at && o.id < b.id)));
+    if (before.length) order.set(b.id, before);
+  }
+  const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
   const canBook = bookable();
+  // who may book keeps a free strip right of the bookings, to drag a new one next to them (#overlap)
+  const W = canBook ? 85 : 100;
   days.forEach((day, i) => {
     const mine = pieces.filter(p => p.i === i);
     layout(mine);
@@ -518,15 +535,15 @@ function paint(scroll) {
         const teams = `${op.teams} team${op.teams === 1 ? '' : 's'} · ${op.pics.join(', ')}`;
         return `<div role="button" tabindex="0" class="bk${p.b.status === 'rejected' ? ' rejected' : ''}" data-id="${p.b.id}" data-op="1" title="${esc([op.place, teams, when, op.pending ? op.pending + ' waiting for approval' : ''].filter(Boolean).join(' · '))}"
           style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
-          left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
+          left:calc(${p.lane / p.n * W}% + 2px);width:calc(${W / p.n}% - 4px)">
           <b>${label}${esc(tab === 'all' ? t.name + ': ' + op.place : op.place)}</b><span>${esc(teams)}</span>
           ${op.pending ? `<span class="op-tag">${op.pending} waiting</span>` : ''}${op.external_status === 'booked' ? `<span class="op-tag booked" title="Booked externally">Booked${op.external_ref ? ' · ' + esc(op.external_ref) : ''}</span>`
             : op.external_status === 'requested' ? '<span class="op-tag" title="Asked by mail, not booked yet">Requested</span>' : ''}</div>`;
       }
       return `<div role="button" tabindex="0" class="bk${p.b.can_edit ? ' movable' : ''}${p.b.status !== 'approved' ? ' ' + p.b.status : ''}" data-id="${p.b.id}" data-piece="${pieces.indexOf(p)}" title="${esc(tip)}"
         style="--c:${esc(colourOf(p.b))};top:${(p.s - first) * HOUR}px;height:${Math.max((p.e - p.s) * HOUR - 2, 18)}px;
-        left:calc(${p.lane / p.n * 100}% + 2px);width:calc(${100 / p.n}% - 4px)">
-        <b>${label}${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span>
+        left:calc(${p.lane / p.n * W}% + 2px);width:calc(${W / p.n}% - 4px)">
+        <b>${label}${order.has(p.b.id) ? `<small class="order" title="${esc(`Booked after ${order.get(p.b.id).map(o => o.person).join(', ')}, during the same time`)}">${ordinal(order.get(p.b.id).length + 1)}</small>` : ''}${esc(tab === 'all' ? t.name + ': ' + p.b.description : p.b.description)}</b><span>${esc(p.b.person)} · ${when}</span>
         ${ticked.length ? `<span class="tags">${ticked.map(f => `<span class="tag"${f.colour ? ` style="--c:${esc(f.colour)}"` : ''}>${f.colour ? '<i></i>' : ''}${esc(f.label)}</span>`).join('')}</span>` : ''}</div>`;
     }).join('') + '</div>';
   });
@@ -535,6 +552,8 @@ function paint(scroll) {
     const open = () => el.dataset.op ? openSlot(+el.dataset.id) : openBooking(null, +el.dataset.id);
     el.onclick = e => { e.stopPropagation(); if (!el.dataset.dragged) open(); };
     if (el.classList.contains('movable')) bindMove(el, pieces[+el.dataset.piece], first);
+    else if (el.parentNode.classList.contains('bookable'))  // not yours to move: a drag books a new time from it
+      el.onpointerdown = e => el.parentNode.startDrag(e, el, open);
     el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
   });
   $('week').querySelectorAll('.col.bookable').forEach(col => bindSlotDrag(col, first));
@@ -544,14 +563,16 @@ function paint(scroll) {
     $('scroll').scrollTop = Math.max(0, (top - first) * HOUR - 8);
   }
 }
-// Drag in a day column to pick the start and end (quarter hours); a plain click books an hour from there.
+// Drag in a day column to pick the start and end (quarter hours); a plain click books an hour from there. A drag can
+// also start on a booking the user may not move (from): a plain click then opens that booking (open) instead.
 function bindSlotDrag(col, first) {
   const QUARTER = HOUR / 4;
   const at = y => Math.max(0, Math.round(y / QUARTER));
   const time = q => { const h = first + q / 4; return `${col.dataset.day}T${pad(Math.floor(h))}:${pad(Math.round(h % 1 * 60))}`; };
-  col.onpointerdown = e => {
-    if (e.target !== col || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    if (e.pointerType === 'touch') return;  // a finger scrolls; a tap still books (click below)
+  col.onpointerdown = e => { if (e.target === col) col.startDrag(e); };
+  col.startDrag = (e, from, open) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.pointerType === 'touch') return;  // a finger scrolls; a tap still books (click below) or opens the booking
     e.preventDefault();
     const box = col.getBoundingClientRect(), start = Math.floor((e.clientY - box.top) / QUARTER);
     let end = start + 4, moved = false;
@@ -574,6 +595,11 @@ function bindSlotDrag(col, first) {
       col.onpointermove = col.onpointerup = col.onpointercancel = null;
       ghost.remove();
       if (u.type === 'pointercancel') return;
+      if (from) {  // the click that ends this is not a click on the booking
+        from.dataset.dragged = '1';
+        setTimeout(() => { delete from.dataset.dragged; });
+        if (!moved) { open(); return; }
+      }
       const a = Math.min(start, end), b = Math.max(start, end);
       openBooking(time(a), null, moved ? time(Math.max(b, a + 1)) : null);
     };
@@ -651,7 +677,7 @@ function paintFlagChecks(checked) {
   const t = item(+f.thing_id.value);
   $('flagField').hidden = !(t && t.flags.length);
   $('flagChecks').innerHTML = (t ? t.flags : []).map(x => `<label class="flag-chip"${x.colour ? ` style="--c:${esc(x.colour)}"` : ''}
-    title="${x.blocks_overlap ? 'Never overlaps another booking' : 'May overlap another booking that also has this option'}">
+    title="${x.blocks_overlap ? 'No other booking may overlap this one' : t.exclusive ? 'May overlap another booking that also ticks this option' : 'A label; does not change overlapping'}">
     <input type="checkbox" value="${x.id}"${checked.includes(x.id) ? ' checked' : ''}>${x.colour ? '<i></i>' : ''}${esc(x.label)}${x.blocks_overlap ? ' <small>exclusive</small>' : ''}</label>`).join('');
   const disabled = f.description.disabled;
   $('flagChecks').querySelectorAll('input').forEach(i => { i.disabled = disabled; });
@@ -1082,10 +1108,10 @@ function addFlagRow(flag = {}) {
   const row = document.createElement('div');
   row.className = 'flag-row';
   if (flag.id) row.dataset.id = flag.id;
-  row.innerHTML = `<input type="text" maxlength="40" placeholder="Option, e.g. Others allowed" value="${esc(flag.label || '')}" aria-label="Option label">
+  row.innerHTML = `<input type="text" maxlength="40" placeholder="Option, e.g. No others or Demo" value="${esc(flag.label || '')}" aria-label="Option label">
     <label class="check" title="Colour of bookings with this option"><input type="checkbox" class="use"${flag.colour ? ' checked' : ''}> Colour</label>
     <input type="color" value="${esc(flag.colour || '#2da44e')}" aria-label="Option colour"${flag.colour ? '' : ' disabled'}>
-    <label class="check" title="A booking with this option never overlaps another"><input type="checkbox" class="blocks"${flag.blocks_overlap ? ' checked' : ''}> Blocks overlaps</label>
+    <label class="check" title="A booking with this option never overlaps another booking; without it the option is only a label"><input type="checkbox" class="blocks"${flag.blocks_overlap ? ' checked' : ''}> Blocks overlaps</label>
     <button type="button" class="sec" onclick="this.parentElement.remove()">Remove</button>`;
   row.querySelector('.use').onchange = e => { row.querySelector('input[type=color]').disabled = !e.target.checked; };
   $('flagRows').append(row);
@@ -1104,6 +1130,7 @@ function openItem(id) {
   f.colour.value = t.colour || '#4493f8';
   f.active.checked = t.active;
   f.needs_approval.checked = !!t.needs_approval;
+  f.exclusive.value = t.exclusive ? '1' : '0';
   approverIds = new Set(t.approver_ids || []);
   $('approverSearch').value = '';
   paintApprovers();
@@ -1123,6 +1150,7 @@ $('itemForm').onsubmit = async event => {
     qualification_for: f.qualification_for.value, colour: f.use_colour.checked ? f.colour.value : null,
     active: f.active.checked, sort_order: editingItem ? item(editingItem).sort_order : data.things.length,
     needs_approval: f.needs_approval.checked, approver_ids: f.needs_approval.checked ? [...approverIds] : [],
+    exclusive: f.exclusive.value === '1',
     flags: [...$('flagRows').children].map(row => ({id: row.dataset.id ? +row.dataset.id : null,
       label: row.querySelector('input[type=text]').value,
       colour: row.querySelector('.use').checked ? row.querySelector('input[type=color]').value : null,

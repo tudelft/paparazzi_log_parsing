@@ -89,21 +89,32 @@ class BookingTests(AppTests):
         self.con.execute("UPDATE qualification_submissions SET valid_until=? WHERE user_id=2", (past,))
         self.assertFalse(self.item(self.arena)["can_view"])
 
-    def test_flags_decide_overlap(self):
+    def test_only_a_blocking_option_prevents_overlap(self):
+        self.assertEqual(self.book(flags=[self.shared]).status_code, 201)  # 10:00-12:00
+        self.sign_in(3)
+        self.assertEqual(self.book(start="2030-01-07T11:00", end="2030-01-07T13:00").status_code, 201)  # no option needed
+        r = self.book(start="2030-01-07T11:00", flags=[self.shared, self.demo])  # blocking: not while others book
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("yours is marked Demo", r.json["error"])
+        self.assertEqual(self.book(start="2030-01-07T13:00", end="2030-01-07T14:00", flags=[self.demo]).status_code, 201)
+        r = self.book(start="2030-01-07T13:30", end="2030-01-07T15:00", flags=[self.shared])  # theirs blocks
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("marked Demo", r.json["error"])
+
+    def test_an_exclusive_item_overlaps_only_with_a_shared_option(self):
+        self.con.execute("UPDATE booking_things SET exclusive=1 WHERE id=?", (self.arena,))
+        self.con.commit()
+        self.assertTrue(self.item(self.arena)["exclusive"])
         self.assertEqual(self.book(flags=[self.shared]).status_code, 201)
         self.sign_in(3)
-        self.assertEqual(self.book(start="2030-01-07T11:00", end="2030-01-07T13:00", flags=[self.shared]).status_code, 201)
-        self.assertEqual(self.book(start="2030-01-07T11:00").status_code, 409)  # not shared
-        self.assertEqual(self.book(start="2030-01-07T11:00", flags=[self.shared, self.demo]).status_code, 409)
-        self.assertEqual(self.book(start="2030-01-07T13:00", end="2030-01-07T14:00", flags=[self.demo]).status_code, 201)
-        r = self.book(start="2030-01-07T13:30", end="2030-01-07T15:00", flags=[self.shared])
+        r = self.book(start="2030-01-07T11:00")
         self.assertEqual(r.status_code, 409)
-        self.assertIn("Demo", r.json["error"])
+        self.assertIn("only when both tick the same option: Others allowed", r.json["error"])
+        self.assertEqual(self.book(start="2030-01-07T11:00", flags=[self.shared]).status_code, 201)
 
-    def test_item_without_flags_never_overlaps_and_items_do_not_conflict(self):
+    def test_items_without_options_overlap_and_items_do_not_conflict(self):
         self.assertEqual(self.book(self.room).status_code, 201)
-        self.assertEqual(self.book(self.room, start="2030-01-07T11:00").status_code, 409)
-        self.assertEqual(self.book(self.room, start="2030-01-07T12:00", end="2030-01-07T13:00").status_code, 201)
+        self.assertEqual(self.book(self.room, start="2030-01-07T11:00").status_code, 201)
         self.assertEqual(self.book(flags=[]).status_code, 201)  # same time, other item
 
     def test_unknown_flag_and_bad_times_are_rejected(self):
@@ -244,7 +255,10 @@ class BookingApprovalTests(AppTests):
         self.assertEqual(self.book(self.arena, flags=[self.shared]).json["status"], "approved")
 
     def test_pending_holds_the_slot_and_reject_frees_it(self):
-        bid = self.book(self.room).json["id"]
+        exclusive = self.con.execute("INSERT INTO booking_flags(thing_id, label, blocks_overlap, sort_order)"
+                                     " VALUES (?, 'No others', 1, 0)", (self.room,)).lastrowid
+        self.con.commit()
+        bid = self.book(self.room, flags=[exclusive]).json["id"]
         self.sign_in(4)
         r = self.book(self.room, start="2030-01-07T11:00", end="2030-01-07T13:00")
         self.assertEqual(r.status_code, 409)
