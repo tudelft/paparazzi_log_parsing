@@ -438,14 +438,14 @@ def drop_stage(stage):
             break
 
 
-def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, user_id, reservation=None):
+def insert_ingest(con, kind, name, stage_rel, data_name, log_name, size_bytes, user_id, reservation=None, tags=None):
     def go():
         with db.write_lock:
             con.execute("BEGIN IMMEDIATE")
             cur = con.execute(
                 "INSERT INTO ingest (kind, name, stage_dir, data_name, log_name, size_bytes, status,"
-                " uploaded_by, uploaded_at) VALUES (?,?,?,?,?,?,'accepted',?,?)",
-                (kind, name, stage_rel, data_name, log_name, size_bytes, user_id, now()))
+                " uploaded_by, uploaded_at, tags) VALUES (?,?,?,?,?,?,'accepted',?,?,?)",
+                (kind, name, stage_rel, data_name, log_name, size_bytes, user_id, now(), tags))
             if reservation:
                 con.execute("UPDATE bulk_reservations SET ingest_id=?,uploading=0 WHERE token=?",
                             (cur.lastrowid, reservation))
@@ -461,6 +461,17 @@ def set_ingest(con, ingest_id, **fields):
         with db.write_lock:
             con.execute("BEGIN IMMEDIATE")
             con.execute(f"UPDATE ingest SET {cols} WHERE id=?", (*fields.values(), ingest_id))
+            if fields.get("log_id"):  # tags given with the upload go to the log and its flights (tags.py)
+                row = con.execute("SELECT tags FROM ingest WHERE id=?", (ingest_id,)).fetchone()
+                given = tags.ids_of(row["tags"] if row else None)
+                if given:
+                    log = con.execute("SELECT upload_tags FROM logs WHERE id=?", (fields["log_id"],)).fetchone()
+                    if log is not None:
+                        con.execute("UPDATE logs SET upload_tags=? WHERE id=?",
+                                    (tags.dump(tags.ids_of(log["upload_tags"]) + given), fields["log_id"]))
+                        for f in con.execute("SELECT f.id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+                                             " WHERE a.log_id=?", (fields["log_id"],)).fetchall():
+                            tags.change(con, "flights", f["id"], add=given)  # a log that was already there
             con.commit()
 
     db.retry_locked(go, con)
@@ -497,7 +508,7 @@ def run_ingest(ingest_id):
             raise
 
 
-def enqueue_staged_log(con, parent_stage, name, src, user_id, companion=None):
+def enqueue_staged_log(con, parent_stage, name, src, user_id, companion=None, tags=None):
     """Move a staged log (and optional Paparazzi .log twin) into its own ingest row."""
     pair_rel = str(Path(parent_stage) / uuid.uuid4().hex)
     pair_dir = ingest_stage(pair_rel)
@@ -512,7 +523,7 @@ def enqueue_staged_log(con, parent_stage, name, src, user_id, companion=None):
         shutil.move(str(src), pair_dir / data_name)
         kind = "file"
     size = (pair_dir / data_name).stat().st_size
-    iid = insert_ingest(con, kind, name, pair_rel, data_name, log_name, size, user_id)
+    iid = insert_ingest(con, kind, name, pair_rel, data_name, log_name, size, user_id, tags=tags)
     ingest_jobs.put(iid)
     return iid, size
 
@@ -548,16 +559,16 @@ def explode_zip(con, row):
         if ".data" in parts and ".log" in parts:
             name = posixpath.join(d, stem + ".data") if d else stem + ".data"
             enqueue_staged_log(con, row["stage_dir"], name, parts[".data"][1], row["uploaded_by"],
-                               companion=parts[".log"][1])
+                               companion=parts[".log"][1], tags=row["tags"])
             n += 1
             continue
         for ext in mav_parse.MAV_SINGLE_EXTS:
             if ext not in parts:
                 continue
-            enqueue_staged_log(con, row["stage_dir"], parts[ext][0], parts[ext][1], row["uploaded_by"])
+            enqueue_staged_log(con, row["stage_dir"], parts[ext][0], parts[ext][1], row["uploaded_by"], tags=row["tags"])
             n += 1
         if ".log" in parts and ".data" not in parts and mav_parse.sniff(parts[".log"][1]) is not None:
-            enqueue_staged_log(con, row["stage_dir"], parts[".log"][0], parts[".log"][1], row["uploaded_by"])
+            enqueue_staged_log(con, row["stage_dir"], parts[".log"][0], parts[".log"][1], row["uploaded_by"], tags=row["tags"])
             n += 1
     shutil.rmtree(unpacked, ignore_errors=True)
     try:
@@ -739,6 +750,7 @@ def upload_reserved_pair(con, token):
     stage.mkdir(parents=True, exist_ok=True)
     accepted = False
     try:
+        given_tags = upload_tags(con)
         files, names = request.files.getlist("files"), request.form.getlist("names")
         if (len(files) != 2 or len(names) != 2 or not names[0].endswith(".data")
                 or names[1] != names[0][:-5] + ".log"):
@@ -750,10 +762,12 @@ def upload_reserved_pair(con, token):
         if size != row["size_bytes"]:
             return jsonify(error="Files changed size after reservation; rerun the script."), 400
         iid = insert_ingest(con, "pair", clean_relpath(names[0]), stage_rel, "log.data", "log.log",
-                            size, g.user["id"], reservation=token)
+                            size, g.user["id"], reservation=token, tags=given_tags)
         accepted = True
         ingest_jobs.put(iid)
         return jsonify(results=[dict(status="accepted", ingest_id=iid)])
+    except tags.TagError as exc:
+        return jsonify(error=str(exc)), exc.status
     except OSError as exc:
         app.logger.exception("Could not stage reserved upload")
         return jsonify(error=f"Could not stage upload: {exc}"), 503, {"Retry-After": "5"}
@@ -762,6 +776,19 @@ def upload_reserved_pair(con, token):
             drop_stage(stage)
             with db.write_lock, con:
                 con.execute("DELETE FROM bulk_reservations WHERE token=? AND ingest_id IS NULL", (token,))
+
+
+def upload_tags(con):
+    """Tags given with an upload (form field "tags", comma-separated, or several): new names create tags (tags.py).
+    The logs' flights get them once parsed; a log that was already there gets them on its flights."""
+    names = [t for value in request.form.getlist("tags") for t in value.split(",") if t.strip()]
+    if not names:
+        return None
+    def go():
+        with db.write_lock, con:
+            con.execute("BEGIN IMMEDIATE")
+            return tags.dump(tags.resolve(con, names, g.user["id"], now()))
+    return db.retry_locked(go, con)
 
 
 @app.post("/api/upload")
@@ -773,6 +800,10 @@ def upload():
     reservation = request.headers.get("X-Bulk-Reservation")
     if reservation:
         return upload_reserved_pair(con, reservation)
+    try:
+        given_tags = upload_tags(con)
+    except tags.TagError as exc:
+        return jsonify(error=str(exc)), exc.status
     files = request.files.getlist("files")
     names = request.form.getlist("names")
     if not files:
@@ -806,7 +837,7 @@ def upload():
         zip_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(dest), zip_dir / dest_name)
         iid = insert_ingest(con, "zip", rel, zip_rel, dest_name, None,
-                            (zip_dir / dest_name).stat().st_size, g.user["id"])
+                            (zip_dir / dest_name).stat().st_size, g.user["id"], tags=given_tags)
         ingest_jobs.put(iid)
         results.append({"name": rel, "status": "accepted", "ingest_id": iid})
     found = {}
@@ -816,7 +847,7 @@ def upload():
         stem, ext = posixpath.splitext(base)
         ext = ext.lower()
         if ext in mav_parse.MAV_SINGLE_EXTS:
-            iid, size = enqueue_staged_log(con, stage_rel, rel, dest, g.user["id"])
+            iid, size = enqueue_staged_log(con, stage_rel, rel, dest, g.user["id"], tags=given_tags)
             results.append({"name": rel, "status": "accepted", "ingest_id": iid, "size_bytes": size})
             continue
         if ext not in (".data", ".log"):
@@ -829,12 +860,12 @@ def upload():
         name = posixpath.join(d, stem + ".data") if d else stem + ".data"
         if ".data" in parts and ".log" in parts:
             iid, size = enqueue_staged_log(con, stage_rel, name, stage / parts[".data"], g.user["id"],
-                                           companion=stage / parts[".log"])
+                                           companion=stage / parts[".log"], tags=given_tags)
             results.append({"name": name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
             continue
         if ".log" in parts and ".data" not in parts:
             log_name = posixpath.join(d, stem + ".log") if d else stem + ".log"
-            iid, size = enqueue_staged_log(con, stage_rel, log_name, stage / parts[".log"], g.user["id"])
+            iid, size = enqueue_staged_log(con, stage_rel, log_name, stage / parts[".log"], g.user["id"], tags=given_tags)
             results.append({"name": log_name, "status": "accepted", "ingest_id": iid, "size_bytes": size})
             continue
         if ".data" in parts:
@@ -2724,7 +2755,7 @@ def assign_log_flights(con, log_id, kept=None):
     """Fill empty flight projects, restoring kept values from a re-parse first."""
     kept = kept or {}
     resolve = person_resolver(con)
-    log = con.execute("SELECT uploaded_by, project_id FROM logs WHERE id=?", (log_id,)).fetchone()
+    log = con.execute("SELECT uploaded_by, project_id, upload_tags FROM logs WHERE id=?", (log_id,)).fetchone()
     if log is None:
         return
     for f in con.execute(
@@ -2734,6 +2765,8 @@ def assign_log_flights(con, log_id, kept=None):
             " FROM flights f JOIN aircraft a ON a.id = f.aircraft_id JOIN logs l ON l.id = a.log_id"
             " WHERE a.log_id=?", (log_id,)):
         restore = kept.get((f["ac_id"], f["idx"])) or {}
+        if not restore and log["upload_tags"]:  # a new flight: the tags given with the upload (tags.py)
+            con.execute("UPDATE flights SET tags=? WHERE id=?", (log["upload_tags"], f["id"]))
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
                         " category=?, authorisation_id=?, verdict_override=?, goal_override=?, preflight_by=?, preflight_at=?,"

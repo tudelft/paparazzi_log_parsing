@@ -157,6 +157,7 @@ body > header .header-actions { display:flex; align-items:center; gap:8px; }
 .upload-dialog { background:var(--card); color:var(--txt); border-radius:10px; width:560px; max-width:100%; padding:18px 20px;
   box-shadow:0 12px 40px #0005; }
 .upload-dialog .dialog-header h2 { margin:0; font-size:18px; }
+.upload-tags { display:flex; flex-direction:column; gap:4px; margin-bottom:10px; font-size:13px; }
 .upload-zone { border:2px dashed var(--line); border-radius:8px; padding:20px; text-align:center; color:var(--mute); }
 .upload-zone.over { border-color:var(--acc); background:var(--sec); }
 .upload-zone strong { color:var(--txt); display:block; margin-bottom:4px; }

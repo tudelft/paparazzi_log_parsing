@@ -2,11 +2,14 @@ function T = pprz_logbook(varargin)
 %PPRZ_LOGBOOK Table of the logbook flights the API key may see, newest first, to pick numbers for pprz_fetch.
 %   T = pprz_logbook()                    flights judged real by the parser
 %   T = pprz_logbook('all', true)         also uncertain and ground records
+%   T = pprz_logbook('tags', "sim-study-3")   only flights with any of these tags (string array or cell); flights
+%                                         with a tag that is hidden by default are only listed when it is asked for
 %   logs = pprz_fetch(T.flight(contains(T.aircraft, 'Hex') & T.date > datetime(2026, 10, 1)))
 %   Columns: flight (number for pprz_fetch), date (takeoff, UTC; NaT when unknown), date_ok (false when the log's
 %   clock was not set and no date was entered), aircraft, duration_min, pic, project, goal, verdict, simulation
-%   (true for a simulated flight) and log. Paper records are left out (they have no telemetry to export).
-    opt = struct('all', false);
+%   (true for a simulated flight), log and tags (string array per flight). Paper records are left out (they have
+%   no telemetry to export).
+    opt = struct('all', false, 'tags', {{}});
     for k = 1:2:numel(varargin)
         opt.(lower(varargin{k})) = varargin{k + 1};
     end
@@ -23,6 +26,9 @@ function T = pprz_logbook(varargin)
     [aircraft, pic, project, goal, verdict] = deal(strings(n, 1));
     [date_ok, simulation] = deal(false(n, 1));
     log = zeros(n, 1);
+    tags = cell(n, 1);
+    hidden = false(n, 1);
+    wanted = lower(string(opt.tags));
     for k = 1:n
         r = rows{k};
         flight(k) = r.flight_id;
@@ -49,11 +55,20 @@ function T = pprz_logbook(varargin)
         if isnumeric(field(r, 'log_id')) && ~isempty(field(r, 'log_id'))
             log(k) = r.log_id;
         end
+        tags{k} = reshape(string(field(r, 'tags')), 1, []);
+        tags{k} = tags{k}(tags{k} ~= "");
+        hid = lower(reshape(string(field(r, 'tags_hidden')), 1, []));
+        hidden(k) = any(hid ~= "" & ~ismember(hid, wanted));  % a tag hidden by default that was not asked for
     end
-    T = table(flight, date, date_ok, aircraft, duration_min, pic, project, goal, verdict, simulation, log);
+    T = table(flight, date, date_ok, aircraft, duration_min, pic, project, goal, verdict, simulation, log, tags);
+    keep = ~hidden;
     if ~opt.all
-        T = T(~ismember(T.verdict, ["uncertain", "ground"]), :);
+        keep = keep & ~ismember(T.verdict, ["uncertain", "ground"]);
     end
+    if ~isempty(wanted)
+        keep = keep & cellfun(@(t) any(ismember(lower(t), wanted)), T.tags);
+    end
+    T = T(keep, :);
 end
 
 function v = field(r, name)

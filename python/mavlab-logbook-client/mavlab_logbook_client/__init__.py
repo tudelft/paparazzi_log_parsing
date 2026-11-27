@@ -12,7 +12,7 @@ See connect() and Client for the details; the command line tool is ``mavlab-logb
 from .client import AuthError, Client, Error, HTTPError, ProcessingFailed
 from .settings import cache_dir, set_cache_dir
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = ["Client", "connect", "logbook", "fetch", "fetch_raw", "upload", "revoke_all", "cache_dir", "set_cache_dir",
            "Error", "AuthError", "HTTPError", "ProcessingFailed"]
 
@@ -45,9 +45,10 @@ def _connected():
     return _client
 
 
-def logbook(all=False):
-    """The logbook flights you may see, newest first (dicts with flight, date, aircraft, …); see Client.logbook."""
-    return _connected().logbook(all=all)
+def logbook(all=False, tags=None):
+    """The logbook flights you may see, newest first (dicts with flight, date, aircraft, tags, …), optionally only
+    those with any of `tags`; see Client.logbook."""
+    return _connected().logbook(all=all, tags=tags)
 
 
 def fetch(flights=None, scope="selected", force=False, log=None):
@@ -61,9 +62,9 @@ def fetch_raw(flights, force=False):
     return _connected().fetch_raw(flights, force=force)
 
 
-def upload(paths, name=None, wait=False, skip_existing=True):
-    """Upload log files; see Client.upload."""
-    return _connected().upload(paths, name=name, wait=wait, skip_existing=skip_existing)
+def upload(paths, name=None, wait=False, skip_existing=True, tags=None):
+    """Upload log files, optionally tagging their flights; see Client.upload."""
+    return _connected().upload(paths, name=name, wait=wait, skip_existing=skip_existing, tags=tags)
 
 
 def revoke_all():

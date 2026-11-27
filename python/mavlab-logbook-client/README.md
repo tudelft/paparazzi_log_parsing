@@ -21,7 +21,8 @@ mats = ml.fetch([1234, 1240], scope="flight")      # one .mat per number instead
 mats = ml.fetch(log=4824)                          # a whole log by its log number (Logs page), also without flights
 logs = ml.fetch_raw([1234, 1240])                  # the original logs, untouched: one path per log
 logs[0]                      # e.g. ~/.cache/mavlab-logbook-client/logs/<sha256>/24_10_30__16_27_37_SD.data (.log next to it)
-receipts = ml.upload(["flight.data", "LOG00030.BFL"], wait=True)
+sims = ml.logbook(tags="sim-study-3")              # only flights with this tag
+receipts = ml.upload(["flight.data", "LOG00030.BFL"], wait=True, tags=["sim-study-3"])
 receipts[0]["flight_ids"]                          # the flights the server found, for ml.fetch
 ```
 
@@ -40,8 +41,9 @@ Keys made on the account page are revoked there.
 **The logbook** (`ml.logbook()`, as MATLAB's `pprz_logbook`) is a list of dicts, one per flight, newest first:
 `flight` (the number for `fetch`), `date` (takeoff, UTC `datetime`; `None` when unknown), `date_ok` (`False` when
 the log's clock was not set and no date was entered), `aircraft`, `duration_min`, `pic`, `project`, `goal`, `verdict`,
-`simulation` (`True` for a simulated flight) and `log`. It holds the flights the parser judged real; `all=True` adds uncertain and ground
-records. Paper records are left out. `pandas.DataFrame(rows)` makes a table of it.
+`simulation` (`True` for a simulated flight), `log` and `tags` (list of names). It holds the flights the parser judged real; `all=True` adds uncertain and ground
+records. `tags="sim-study-3"` (or a list) keeps only flights with any of them; a flight with a tag that is hidden by
+default (set by admins) is only listed when that tag is asked for. Paper records are left out. `pandas.DataFrame(rows)` makes a table of it.
 
 **Fetching** works as MATLAB's `pprz_fetch`: `fetch` downloads the MATLAB exports (`.mat`, v7.3 = HDF5, e.g. for
 `h5py`; the format is in the [MATLAB README](https://github.com/tudelft/paparazzi_log_parsing/tree/master/matlab))
@@ -58,6 +60,7 @@ cached copies are used, with a warning.
 **Uploads** pair a `.data` with the `.log` next to it (whichever of the two you pass). A log already on the server
 is skipped. `name="Hex 1/LOG00030.BFL"` sets the stored name of a single file, which can link it to a fleet
 aircraft. With `wait=True` each call returns once the server has parsed the log, else as soon as it accepted it.
+`tags=["sim-study-3"]` tags the flights of the uploaded logs (a new name makes a new tag); a skipped log keeps its tags.
 
 ## Command line
 

@@ -16,6 +16,8 @@ Tools to load, plot and analyse Paparazzi flights exported by the flight logbook
                                              % pprz_view('log', 4824) opens it (e.g. calibration data)
   f = pprz_flight(logs, 'number', 1240);     % one flight by its logbook number
   r = pprz_upload({'a.data', 'LOG00030.BFL'}, 'wait', true);   % upload; r(1).flight_ids for pprz_fetch
+  r = pprz_upload(files, 'tags', "sim-study-3");                % and tag their flights
+  T = pprz_logbook('tags', "sim-study-3");                      % only flights with this tag
   ```
 
   `pprz_connect(server, key)` connects; the server is required (`https://`; `http://` only for `localhost`, so keys
@@ -95,8 +97,8 @@ aircraft `a` explicitly.
 | `pprz_revoke_all` | Revoke your browser-login keys on all computers. |
 | `pprz_cache_dir` | Show or set the folder where downloads are cached. |
 | `pprz_fetch(ids)` | Load flights from the logbook server by flight number, one file per log, cached locally; `'scope'` `selected`/`all`/`log`/`flight`; `'force', true` downloads again. |
-| `pprz_upload(files)` | Upload logs (a `.data` with its `.log`); `'wait', true` returns the parsed log's `flight_ids` for `pprz_fetch`. |
-| `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records). |
+| `pprz_upload(files)` | Upload logs (a `.data` with its `.log`); `'wait', true` returns the parsed log's `flight_ids` for `pprz_fetch`; `'tags', ["a", "b"]` tags their flights. |
+| `pprz_logbook` | Table of the logbook flights the key may see, to pick numbers for `pprz_fetch` (`'all', true` adds uncertain and ground records; `'tags', "a"` only flights with that tag; column `tags`). |
 | `pprz_flights` | Table of all flights (row numbers for `pprz_flight`), with the logbook `number`; flight 0 is a whole-log export. |
 | `pprz_flight` | One flight ready to plot (row of `pprz_flights`, or `'number', n`), or `'whole'` for the full recording: `f.data`, `f.time`, `f.summary`, `f.logbook`, `f.aircraft`, `f.messages`, `f.title`. A flight in a whole-log export is cut from the log. |
 | `pprz_plot` | Make plots by name, or every plot whose messages were logged; options `modes` (`ap`/`rc`), `range` [t0 t1], `docked`, `events` (markers: `true` or kinds such as `{'mode', 'message'}`). |

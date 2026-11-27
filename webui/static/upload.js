@@ -8,7 +8,7 @@
   const UPLOAD_CONCURRENCY = 3;
   const PAIRS_PER_POST = 20;
   const MAX_POST_BYTES = 64 * 1024 * 1024;
-  let sendTotal = 0, sendDone = 0, sendActive = 0, recentTimer = null, back = null;
+  let sendTotal = 0, sendDone = 0, sendActive = 0, recentTimer = null, back = null, tagField = null;
   const $ = id => document.getElementById(id);
 
   function build() {
@@ -17,6 +17,8 @@
     back.hidden = true;
     back.innerHTML = `<div class="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
       <div class="dialog-header"><h2 id="uploadTitle">Upload</h2><button type="button" id="uploadClose">Close</button></div>
+      <div class="upload-tags" title="The flights of the logs you upload next get these tags (#368); a new name makes a new tag">
+        <span>Tags <span class="mute">(optional, for the logs you upload next)</span></span><div id="uploadTags"></div></div>
       <div class="upload-zone" id="uploadZone">
         <strong>Drop log files, zips or folders here</strong>
         Paparazzi .data + .log, PX4 .ulg, ArduPilot .bin / .log, MAVLink .tlog, Betaflight/INDIFlight .bfl / .bbl.
@@ -40,6 +42,7 @@
       <div class="upload-recent"><h3>Your recent uploads</h3><div id="uploadRecent" class="mute">Loading…</div></div>
     </div>`;
     document.body.appendChild(back);
+    if (window.tagInput) tagField = window.tagInput($('uploadTags'), {placeholder: 'e.g. sim-study-3'});
     $('uploadClose').onclick = close;
     back.addEventListener('click', e => { if (e.target === back) close(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && !back.hidden) close(); });
@@ -179,6 +182,7 @@
     const fd = new FormData();
     for (const g of pack)
       for (const {file, rel} of g) { fd.append('files', file, file.name); fd.append('names', rel); }
+    for (const tag of tagField ? tagField.values : []) fd.append('tags', tag);
     const n = pack.length;
     const names = pack.map(g => g[0].rel.replace(/\.(data|log)$/i, ''));
     const failAll = why => note(`<div><span class="badge error">failed</span> <span>${esc(why)}:</span> <span class="mute">${names.map(esc).join(', ')}</span></div>`);

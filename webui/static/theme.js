@@ -553,7 +553,7 @@ window.tagInput = function (box, {values = [], mode = 'edit', placeholder = 'Add
         </div>
         <div class="filter-options">
           <label><input type="checkbox" name="indoor"> Hide indoor / no-GPS flights</label>
-          <label title="Ground runs, uncertain flights and simulations"><input type="checkbox" name="nonflights"> Hide non-flights <span class="mute">(ground runs, uncertain, simulations)</span></label>
+          <label title="Ground runs, uncertain flights and simulations"><input type="checkbox" name="nonflights"> Hide non-flights</label>
           <label title="Parsed logs that produced no flight"><input type="checkbox" name="nologs"> Hide logs without flights</label>
           <label><input type="checkbox" name="unknownDates"> Hide unknown dates</label>
         </div>

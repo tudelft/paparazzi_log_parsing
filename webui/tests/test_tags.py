@@ -65,3 +65,34 @@ class TagTests(AppTests):
         rows = self.client.get("/api/logbook").json
         home = __import__("home")
         self.assertEqual([home.real_flight(r) for r in sorted(rows, key=lambda r: r["flight_id"])], [False, True])
+
+
+class UploadTagTests(AppTests):
+    """Tags given with an upload go to the flights of its log (#368)."""
+
+    def test_upload_tags_reach_the_log_and_its_flights(self):
+        import io
+        self.sign_in(2)
+        response = self.client.post("/api/upload", data={"files": (io.BytesIO(b"blackbox"), "LOG1.BFL"),
+                                                          "names": "LOG1.BFL", "tags": ["sim-study-3", "bench test,new"]})
+        self.assertEqual(response.status_code, 200, response.json)
+        iid = response.json["results"][0]["ingest_id"]
+        given = json.loads(self.con.execute("SELECT tags FROM ingest WHERE id=?", (iid,)).fetchone()[0])
+        self.assertEqual(len(given), 3)  # names may also come comma-separated; new ones are created
+        bad = self.client.post("/api/upload", data={"files": (io.BytesIO(b"x"), "L.BFL"), "names": "L.BFL", "tags": "x" * 41})
+        self.assertEqual(bad.status_code, 400)
+        # the log is already there with a flight: it gets the tags at once
+        self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id)"
+                         " VALUES(1,'LOG1.BFL','s','d','done','now',2,1)")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(1,1,1,'Drone',7)")
+        self.con.execute("INSERT INTO flights(id,aircraft_id,idx,duration_s,project_id) VALUES(1,1,0,100,1)")
+        self.con.commit()
+        self.ns["set_ingest"](self.con, iid, status="duplicate", log_id=1)
+        self.assertEqual(sorted(json.loads(self.con.execute("SELECT tags FROM flights WHERE id=1").fetchone()[0])), sorted(given))
+        # a flight that a (re-)parse adds gets them too; a flight kept from before keeps its own tags
+        self.con.execute("INSERT INTO flights(id,aircraft_id,idx,duration_s,project_id) VALUES(2,1,1,100,1)")
+        self.con.execute("UPDATE flights SET tags=NULL WHERE id=1")
+        self.con.commit()
+        self.ns["assign_log_flights"](self.con, 1, kept={(7, 0): {"tags": None}})
+        rows = dict(self.con.execute("SELECT id, tags FROM flights").fetchall())
+        self.assertEqual((rows[1], sorted(json.loads(rows[2]))), (None, sorted(given)))
