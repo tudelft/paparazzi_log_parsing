@@ -292,7 +292,9 @@ CREATE TABLE IF NOT EXISTS flights (
                                        -- done by the PIC (flights from before it was recorded); kept across a re-parse
     preflight_at TEXT,                 -- when confirmed; NULL = not confirmed (a checklist in the log needs none)
     preflight_special TEXT,            -- special conditions noted with the confirmation (the log's own: checklist "special")
-    tags TEXT                          -- JSON list of tags.id (tags.py); kept across a re-parse
+    tags TEXT,                         -- JSON list of tags.id (tags.py); kept across a re-parse
+    track_origin_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL  -- where a track without GPS starts on the
+                                       -- map (its local position from there); NULL: the project's; kept across a re-parse
 );
 CREATE TABLE IF NOT EXISTS setting_changes (
     id INTEGER PRIMARY KEY,
@@ -314,7 +316,8 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TEXT NOT NULL,
     operator_id INTEGER,                -- operators.id its flights are flown under, unless set on the flight
     category TEXT,                      -- default operation category of its flights (categories.py)
-    authorisation_id INTEGER
+    authorisation_id INTEGER,
+    track_origin_place_id INTEGER REFERENCES places(id) ON DELETE SET NULL  -- default map origin of its tracks without GPS
 );
 CREATE TABLE IF NOT EXISTS project_members (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -1161,6 +1164,10 @@ def init(path):
     for col, kind in (("preflight_by", "INTEGER"), ("preflight_at", "TEXT"), ("preflight_special", "TEXT"), ("tags", "TEXT")):
         if col not in fcols:
             con.execute(f"ALTER TABLE flights ADD COLUMN {col} {kind}")
+    for table in ("flights", "projects"):  # map origin of a track without GPS (local position only, e.g. mocap)
+        if "track_origin_place_id" not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN track_origin_place_id INTEGER"
+                        " REFERENCES places(id) ON DELETE SET NULL")
     rcols = {r[1] for r in con.execute("PRAGMA table_info(flight_records)")}
     if "preflight" not in rcols:
         con.execute("ALTER TABLE flight_records ADD COLUMN preflight INTEGER CHECK(preflight IS NULL OR preflight=1)")
@@ -1518,7 +1525,7 @@ def store_parsed(con, log_id, doc, paths_file):
              summ.get("num_flights"), summ.get("total_flight_time_s"), summ.get("total_flight_distance_m"),
              json.dumps(ac.get("preflight_checks", [])), pack(ac.get("info_messages", [])), pack(config),
              json.dumps(ac["simulation"]) if ac.get("simulation") is not None else None,
-             board_id(lg.get("timing"), ac.get("ac_id"))),
+             ac.get("mcu_uid") or board_id(lg.get("timing"), ac.get("ac_id"))),  # mav_parse gives it directly
         )
         ac_pk = cur.lastrowid
         for f in ac.get("flights", []):

@@ -63,7 +63,7 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
 |---|---|
 | **Logbook** | Filter flights (also by a paper record's reference, e.g. F00090), review flight time, expand a row or open its flight page (Back returns to the logbook as you left it; ← / → there go to the previous/next flight of the project). Click aircraft, crew, project or location names for their detail pages. |
 | **Download logs** | The button at the top right: install and example code for the Python package and the MATLAB tools, to download logs by flight number as `.mat` exports or original files. |
-| **Upload** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. Photos, videos and documents dropped with them are matched to your flights by when they were made (photo/video time, a time in the name, else the file date): a review shows the proposed flight per file, which you can change, before anything is uploaded. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. |
+| **Upload** | The button at the top right (or drop files on any page): send logs, ZIP archives or folders and follow your recent uploads while they are parsed. Photos, videos and documents dropped with them are matched to your flights by when they were made (photo/video time, a time in the name, else the file date): a review shows the proposed flight per file, which you can change, before anything is uploaded. **Logs** (Directory ▾) lists every log you can see, with parsing progress and errors. Paparazzi logs need matching `.data` and `.log` files. PX4 `.ulg`, ArduPilot `.bin`/`.log`, `.tlog` and Betaflight/INDIFlight `.bfl`/`.bbl` files can also be uploaded. A folder named after one fleet aircraft still links when the files sit in subfolders; already uploaded logs with that layout are linked at each start. ArduPilot logs are linked by their flight controller's unique ID, not by their default name (`ArduPilot-1` is the same on every drone whose system ID was never changed): link the board once under Aircraft → Shared names and every log from it follows ([details](TECHNICAL.md#default-autopilot-names)). |
 | **Statistics** | Under Directory: totals for aircraft, projects and crew within your access; admins also see the disk space used. |
 | **Aircraft / People / Projects / Locations** | Browse records and open their histories, totals and flights. **My aircraft** on Aircraft shows the aircraft you are the responsible person of; a person's page lists them under **Responsible for**. When enabled, admins can **View as** a person from their page to see and use the site as them; see [View as another user](TECHNICAL.md#view-as-another-user). |
 | **Training** | When enabled, complete questionnaires until you pass. A pass writes the linked qualification immediately. |
@@ -105,7 +105,9 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
   their dots with a subtle text halo; **Show flight plan** hides/shows both the dots and names. Waypoints whose names
   start with `_` are hidden by default; enable **Show hidden waypoints** to reveal them.
   OptiTrack flights show the **OptiTrack / INS path** by default; switch to **GPS path** next to the title
-  (see "INS path" in the [technical guide](TECHNICAL.md)).
+  (see "INS path" in the [technical guide](TECHNICAL.md)). Logs without GPS but with a local position (motion
+  capture, simulation) are drawn from a location: the project's default (Edit project) or **Track origin** in Edit
+  flight ([details](TECHNICAL.md#track-origin)).
 - Logs has a **Status** filter: **Parser errors**, **Unfinished logs** (queued, parsing or
   error), or **All failures** (also failed/rejected upload receipts). Filters cover all pages.
 - Statistics uses the shared flight filters. **Total log data (GB)** sums original telemetry sizes for logs contributing to
@@ -264,7 +266,7 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
   aliases, or use Add user if a new profile is needed. Previously generated profiles are kept.
 - Admins manage project access on **Projects** and named takeoff areas on **Locations**. **Projects** is a table
   (project, members, logs, operator, category); a row opens a project you may change beside it (Details, Members),
-  other rows open the project page. **Edit project** changes the name, operator, category and members in one dialog
+  other rows open the project page. **Edit project** changes the name, operator, category, track origin and members in one dialog
   (access per member: See, upload, edit, delete or Manager); ⋯ deletes the project. Admins can make a member
   **Manager** of a project; a manager changes its members with Edit project, but only admins appoint managers
   ([details](TECHNICAL.md#accounts-and-tu-delft-login)).

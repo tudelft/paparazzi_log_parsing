@@ -205,7 +205,9 @@ class PX4NavigationTests(unittest.TestCase):
         self.assertEqual(flights[0]["duration_s"], 10)
 
 
-def _tiny_tlog(path):
+def _tiny_tlog(path, board=None, versions=(), board_at_us=20_000, extra=()):
+    """versions: (component ID, 64-bit uid) for AUTOPILOT_VERSION messages, in that order (MAVLink 1: no uid2), from
+    30 ms; the board line at board_at_us. extra: (offset µs, system ID, component ID, build(mav) -> message)."""
     from pymavlink import mavutil
 
     mav = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=1)
@@ -213,15 +215,23 @@ def _tiny_tlog(path):
     chunks = []
     t0 = 1_784_621_695_000_000
 
-    def add(offset_us, msg):
-        chunks.append(struct.pack(">Q", t0 + offset_us) + msg.pack(mav))
+    def add(offset_us, msg, sender=mav):
+        chunks.append(struct.pack(">Q", t0 + offset_us) + msg.pack(sender))
 
     add(0, mav.heartbeat_encode(2, 3, 128, 0, 4))
     add(10_000, mav.statustext_encode(6, b"ArduCopter ready"))
+    if board:
+        add(board_at_us, mav.statustext_encode(6, board))
+    for i, (compid, uid) in enumerate(versions):
+        sender = mavutil.mavlink.MAVLink(None, srcSystem=1, srcComponent=compid)
+        add(30_000 + i * 1_000, mav.autopilot_version_encode(0, 0, 0, 0, 0, [0] * 8, [0] * 8, [0] * 8, 0, 0, uid), sender)
     add(1_000_000, mav.gps_raw_int_encode(t0, 3, 519900000, 43700000, 12000, 65535, 65535, 200, 0, 12))
     add(1_100_000, mav.attitude_encode(1100, 0.1, -0.05, 1.2, 0, 0, 0))
     add(2_000_000, mav.gps_raw_int_encode(t0 + 2_000_000, 3, 519903000, 43700300, 25000, 65535, 65535, 800, 0, 12))
     add(5_000_000, mav.heartbeat_encode(2, 3, 0, 0, 3))
+    for offset_us, sysid, compid, build in extra:
+        add(offset_us, build(mav), mavutil.mavlink.MAVLink(None, srcSystem=sysid, srcComponent=compid))
+    chunks.sort(key=lambda c: c[:8])  # by time
     Path(path).write_bytes(b"".join(chunks))
 
 
@@ -299,6 +309,68 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(ac["preflight_checks"])
         self.assertGreaterEqual(len(ac["flights"]), 1)
         self.assertTrue(any(p.get("position") for p in ac["flights"][0]["path"]))
+
+    def test_ardupilot_board_id_from_the_boot_line(self):
+        """The flight controller's unique ID links the log to its aircraft, not the name (ArduPilot-<SYSID>)."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "flash.log"
+            _tiny_ap_log(path)
+            doc = mav_parse.parse(path, path_rate=1)
+            self.assertIsNone(doc["aircraft"][0]["mcu_uid"])  # no boot line: no board ID
+            text = path.read_text().replace("MSG, 1000, ArduCopter V4.5.0\n",
+                                            "MSG, 1000, ArduCopter V4.5.0\nMSG, 1100, CubeOrangePlus 0042003D 30325114 33383839\n")
+            path.write_text(text)
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["name"], "ArduPilot-7")
+        self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+        self.assertIn("CubeOrangePlus 0042003D 30325114 33383839", ac["autopilot_versions"])
+
+    def test_board_id_helpers(self):
+        self.assertEqual(mav_parse.ap_board_id("CubeOrange 00300032 32385111 31393631"), ("CubeOrange", "003000323238511131393631"))
+        for text in ("ArduCopter V4.5.7 (2a3dc4b7)", "ChibiOS: 6a85082c", "Cube 00000000 00000000 00000000", "Cube 0042003d 30325114 33383839"):
+            self.assertIsNone(mav_parse.ap_board_id(text), text)
+        raw = struct.pack("<III", 0x0042003D, 0x30325114, 0x33383839) + bytes(6)
+        self.assertEqual(mav_parse.mavlink_uid_board_id(list(raw)), "0042003d3032511433383839")  # same as the boot line
+        self.assertEqual(mav_parse.mavlink_uid_board_id([0] * 18, 0x1234), "0000000000001234")
+        self.assertIsNone(mav_parse.mavlink_uid_board_id([0] * 18, 0))
+        self.assertIsNone(mav_parse.mavlink_uid_board_id(None))
+
+    def test_tlog_board_id_from_statustext(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, board=b"CubeOrangePlus 0042003D 30325114 33383839")
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+
+    def test_tlog_96_bit_board_id_beats_an_earlier_64_bit_uid(self):
+        """A uid-only AUTOPILOT_VERSION (MAVLink 1) before the boot line: the boot line's ID, as in the .bin."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, board=b"CubeOrangePlus 0042003D 30325114 33383839", board_at_us=40_000,
+                       versions=[(1, 0x1111222233334444)])
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["mcu_uid"], "0042003d3032511433383839")
+
+    def test_tlog_name_and_board_of_the_vehicle_not_the_ground_station_or_another_vehicle(self):
+        """The ground station's own heartbeat (system 255) last in the tlog does not name it; a second vehicle's board
+        is not given to the recording named after the first."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, extra=[
+                (25_000, 2, 1, lambda mav: mav.autopilot_version_encode(0, 0, 0, 0, 0, [0] * 8, [0] * 8, [0] * 8, 0, 0, 0x2222)),
+                (26_000, 2, 1, lambda mav: mav.heartbeat_encode(2, 3, 0, 0, 3)),
+                (6_000_000, 255, 190, lambda mav: mav.heartbeat_encode(6, 8, 0, 0, 4))])
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["name"], "MAVLink-1")  # the last autopilot message is from system 1
+        self.assertIsNone(ac["mcu_uid"])  # only vehicle 2 sent a board ID
+
+    def test_tlog_board_id_only_from_the_autopilot_component(self):
+        """A gimbal or companion computer with the same system ID sends its own AUTOPILOT_VERSION: not the board ID."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "link.tlog"
+            _tiny_tlog(path, versions=[(154, 0x1111222233334444), (1, 0x0042003D30325114)])
+            ac = mav_parse.parse(path, path_rate=1)["aircraft"][0]
+        self.assertEqual(ac["mcu_uid"], "0042003d30325114")
 
     def test_tlog_statustext_and_heartbeat_arming(self):
         with tempfile.TemporaryDirectory() as d:
@@ -711,6 +783,43 @@ class FleetLinkTests(AppTests):
         self.con.commit()
         self.ns["link_log_aircraft"](self.con, 1)
         self.assertEqual(self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=1").fetchone()[0], 11)
+
+    def add_log(self, log_id, name, log_type, ac_name="LOG00001", drone_id=None):
+        self.con.execute("INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,log_type) "
+                         "VALUES (?,?,?,'a.gz','done','now',?)", (log_id, name, f"sha{log_id}", log_type))
+        self.con.execute("INSERT INTO aircraft(log_id, ac_id, name, drone_id) VALUES (?, 1, ?, ?)", (log_id, ac_name, drone_id))
+        self.con.commit()
+
+    def drone_of_log(self, log_id):
+        return self.con.execute("SELECT drone_id FROM aircraft WHERE log_id=?", (log_id,)).fetchone()[0]
+
+    def test_folder_guess_skips_an_aircraft_that_flies_another_autopilot(self):
+        """Aircraft do not switch autopilots: a PX4 log in a folder named after a Paparazzi aircraft is not its."""
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Modular Hex 1','TUD00905','now')")
+        self.add_log(5, 'old/hex_SD.data', 'onboard_sd', 'Hex', drone_id=10)
+        self.add_log(1, 'Modular Hex 1/a.ulg', 'px4_ulog', drone_id=10)  # linked earlier by that folder
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertIsNone(self.drone_of_log(1))  # its own earlier link does not count as flying PX4
+        self.add_log(2, 'Modular Hex 1/b.BFL', None, 'LOG00002')  # a legacy log without a type is a Paparazzi one
+        self.ns["link_log_aircraft"](self.con, 2)
+        self.assertEqual(self.drone_of_log(2), 10)
+
+    def test_folder_guess_picks_the_one_aircraft_of_the_same_autopilot(self):
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (9,'Quad 1','TUD00902','now')")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (10,'Quad 2','TUD00903','now')")
+        self.add_log(5, 'q1.ulg', 'px4_ulog', 'Q1', drone_id=9)
+        self.add_log(6, 'q2.bin', 'ardupilot', 'Q2', drone_id=10)
+        self.add_log(1, 'Quad/a.ulg', 'px4_ulog')
+        self.ns["link_log_aircraft"](self.con, 1)
+        self.assertEqual(self.drone_of_log(1), 9)
+        self.add_log(2, 'Quad/b.tlog', 'mavlink_tlog')  # a tlog may be either: still both match, no guess
+        self.ns["link_log_aircraft"](self.con, 2)
+        self.assertIsNone(self.drone_of_log(2))
+        payload = self.fleet()
+        self.assertEqual({d["id"]: d["autopilots"] for d in payload["drones"] if d["id"] in (9, 10)},
+                         {9: ["PX4"], 10: ["ArduPilot"]})
+        row = next(e for e in payload["unlinked"] if e["name"] == "LOG00001")
+        self.assertEqual(row["autopilots"], [])  # only the tlog is still unlinked under that name
 
     def test_startup_relink_picks_up_nested_folder_uploads(self):
         self.con.execute(

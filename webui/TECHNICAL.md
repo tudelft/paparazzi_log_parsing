@@ -145,6 +145,18 @@ exist, defaulting to the INS path for OptiTrack flights (indoors the GPS receive
 the URL (`?path=gps|ins`). With the INS path, the takeoff and landing markers are its first and last point. The
 maps zoom to level 23 (tiles above 19 are scaled up). Distances and the logbook places still come from GPS.
 
+<a id="track-origin"></a>**Track origin (tracks without GPS).** A flight whose path has no GPS position but a local
+north/east position without map coordinates of its own (e.g. Blackbox/INDIFlight, PX4, ArduPilot or MAVLink logs flown
+with motion capture, or simulations) is drawn from a location: the one set on the flight (Edit flight → *Track
+origin*, `PUT /api/flights/<id>/track-origin` with `place_id`, null = the project's; same rights as the goal; kept
+across a re-parse), else the project's default (Edit project, admins, `track_origin_place_id`). Local north/east are
+added to the centre of that location (flat earth, no rotation: a rough location only). The server does this when it
+serves the path (`/api/flights/<id>/path` and the flight page's `/detail`), into each point's `ins` `lat`/`lon`
+(marked `placed`), so a new origin needs no reparse. GPS `position`, the logbook places, distances, weather and GPS
+quality never use these coordinates. Without GPS the flight page shows the INS path (no GPS/INS select) and the
+Logbook's mini-map falls back to it; with no origin set, the map says how to choose one. Deleting a location clears it
+as origin.
+
 **Fixed-wing navigation fallback.** Parser 1.7.9 can fill gaps in direct GPS using recorded
 `NAVIGATION.pos_x/pos_y` (metres east/north) and the latest received `NAVIGATION_REF`
 UTM origin. GPS still takes precedence for two seconds. A reference must first agree
@@ -391,7 +403,30 @@ full `sha1` replaces the short `-g<hash>` from `desc` as the revision, so GitHub
 Zero/empty values are `null`. Logs without these fields parse as before; `raw` stays `version desc`. The flight page
 (Software) and the Logs log details show the full commit, build time and board ID; MATLAB exports add
 them to `s.aircraft(i).version`. An empty array prints as no token, so the column exporter accepts missing
-trailing array fields as empty (a board without a unique ID). PX4 and ArduPilot logs are unaffected.
+trailing array fields as empty (a board without a unique ID). ArduPilot logs (mav-log parser 1.2.0) take the board ID
+from the line ArduPilot writes at boot, e.g. `CubeOrangePlus 0042003D 30325114 33383839` (board type and the
+processor's 96-bit unique ID; stored as one lowercase hex string, the line is listed with the autopilot versions); a
+tlog from the same text as `STATUSTEXT`, else from `AUTOPILOT_VERSION.uid2` (the same ID as raw bytes, read as the
+same little-endian words) or `uid`, never from the ground station (system 255). PX4 `.ulg` logs are unaffected (their
+`sys_uuid` is in the name). The version change marks earlier ArduPilot and tlog logs outdated: re-parse them to get
+their board IDs.
+
+<a id="default-autopilot-names"></a>**Default autopilot names.** An ArduPilot, MAVLink or PX4 log without a name of its own
+is named after its vehicle and MAVLink system ID (`ArduPilot-1`, `ArduCopter-1`, `ArduPlane-1`, `ArduRover-1`,
+`ArduSub-1`, `AntennaTracker-1`, `Blimp-1`, `MAVLink-1`, `PX4-1`; `is_default_log_name`). Every
+drone whose `SYSID_THISMAV` (PX4: `MAV_SYS_ID`) was never changed has the same name, so it never identifies an
+aircraft. Only system ID 1 is a default: a name with an ID set on purpose (`ArduCopter-12`) names one vehicle and links
+like any other name. A default name is a
+shared name (`ambiguous_drone_names`) from the moment a log with it is parsed, and at each start for logs already
+there (`mark_default_names_shared`). Marking it works as *Mark a name as shared*: an alias with that name is removed,
+boards learned automatically through that alias are forgotten unless a log under one of that drone's own names also
+has the board (hand-linked boards stay), and its logs, and any log placed through a forgotten board, are linked again:
+by board ID, by hand, or through the other recording of the same flight. It cannot be added as an alias
+(409, link the board instead) nor unmarked (409). A fleet aircraft that is really called that is left alone. Link a
+flight controller once under **Shared names** (its board row) and every log from it follows. In a `.tlog` the system ID
+(and so the name) and the board ID are taken only from the autopilot itself (component 1, not the ground station or a
+gimbal or companion computer with the same system ID), the board ID of the vehicle the recording is named after, and a
+96-bit ID (boot line or `uid2`) replaces a 64-bit `uid` seen earlier.
 
 **Matching by autopilot board.** Each recording stores its board ID (`aircraft.mcu_uid`). When a recording is
 linked to a fleet aircraft by a clear name or by hand, an unknown board ID is remembered for that aircraft
@@ -988,7 +1023,8 @@ Members (the first three, "+N", all on hover), Logs, Operator and Category of it
 rows per page (20 by default) are in the URL (`q`, `sort`, `page`, `size`). Admins, and managers for their projects, open a project
 beside the table (`open=<id>`, `ptab=members`; Operator and Category are hidden then) with the tabs Details and
 Members; other rows open the project page. **Edit project** is one dialog: admins change the name, operator (also
-**New operator…**) and category (`PUT /api/admin/projects/<id>` with only what changed) and the members; a manager only
+**New operator…**), category and [track origin](#track-origin) (`PUT /api/admin/projects/<id>` with only what changed;
+`/api/admin/projects` lists the locations for it) and the members; a manager only
 the members. Each member has one access select (See / See, upload / … edit / … delete / Manager) and × to remove
 (↺ undoes); a search adds an enabled, non-external person with See. Save sends one `PUT /api/projects/<id>/members` per
 changed member (`role: ""` removes). ⋯ (admins): **Delete project…** (logs stay). **Add project** and **Manage ▾**
@@ -1208,7 +1244,9 @@ Admins have **Add aircraft** and **Manage ▾** (Import CSV…, Download CSV tem
 tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`) and **Shared names** (one row per name with its recordings, boards and aircraft; a click opens its
 boards below it, `sname=` in the URL, with *Remove ambiguous status…* at the bottom): tick names,
 boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
-Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
+Discard; a single folder candidate is preselected; when the ticked rows are of one autopilot family, the aircraft
+that fly it come first, then those without logs, then the others: `autopilots` per aircraft, unlinked name and
+shared-name recording in `GET /api/drones`). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
 <a id="people-page"></a>**People page** ([UI rule](#ui-rule)). A table like Aircraft, the
 same for everyone: Name (a link to the pilot page), Flights, Hours and Last flight as PIC within the flight filters
@@ -2654,7 +2692,11 @@ upload path is a hint. Folders are tried from the file's own folder upward, skip
 dump names (`logs`, `uploads`, …) and `YYYY-MM-DD` date folders. The first (deepest) folder
 that uniquely overlaps one fleet name wins, so `Hex 1/2026-10-13/LOG00030.BFL`
 links to Hex 1. An ambiguous token such as `Quadrotor` is skipped and a higher unique
-folder may still match. Select folder includes the chosen folder name in the stored path (drop
+folder may still match. Aircraft do not switch autopilots, so a folder match must fly the log's autopilot family
+(Paparazzi, PX4, ArduPilot, Betaflight/INDIFlight/Blackbox; `log_autopilot`, from the logs already linked to it,
+not counting the log itself), or have no logs yet: a PX4 log in a folder named after a Paparazzi aircraft is not
+guessed, and of two matching aircraft the only one of the same family wins. A `.tlog` (PX4 or ArduPilot) has no
+family and matches as before. Select folder includes the chosen folder name in the stored path (drop
 and zip already did). A logged name that is only the log's file name is not stored as an alias and not listed
 under *Names in logs*: the parser uses the file name when a log has no craft name (Betaflight/INDIFlight without
 one, PX4 without an airframe), so `LOG00030`, `LOG00159_manualShakedown` or `flight_a` (from `flight_a.bbl`) say

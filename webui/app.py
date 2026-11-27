@@ -230,6 +230,62 @@ def flight_path(paths_file, idx, days=0, path_gz=None):
     return apply_clock_to_obj(copy.deepcopy(path), days) if days else path
 
 
+EARTH_RADIUS_M = 6378137.0
+
+
+def track_origin(con, flight_id):
+    """Where a track without GPS starts on the map: the location set on the flight, else its project's default.
+    {place_id, name, source: flight | project, lat, lon, project_place: {id, name} | None}, or None when neither is
+    set."""
+    row = con.execute(
+        "SELECT f.track_origin_place_id AS flight, p.track_origin_place_id AS project FROM flights f"
+        " LEFT JOIN projects p ON p.id = f.project_id WHERE f.id=?", (flight_id,)).fetchone()
+    if row is None:
+        return None
+    found = {key: con.execute("SELECT id, name, shape FROM places WHERE id=?", (row[key],)).fetchone()
+             for key in ("flight", "project") if row[key] is not None}
+    source = next((key for key in ("flight", "project") if found.get(key) is not None), None)
+    if source is None:
+        return None
+    place = found[source]
+    lat, lon = home.place_centre(place["shape"])
+    project = found.get("project")
+    return dict(place_id=place["id"], name=place["name"], source=source, lat=lat, lon=lon,
+                project_place=dict(id=project["id"], name=project["name"]) if project is not None else None)
+
+
+def has_local_track(path):
+    """A path without any GPS position but with a local (north/east) position that has no map coordinates of its
+    own (Paparazzi logs place theirs from the logged origin), e.g. motion capture or simulation."""
+    if db.path_has_gps_position(path):
+        return False
+    return any(isinstance(((p.get("ins") or {}).get("position_ned_m") or {}).get("north"), (int, float))
+               and not valid_gps_location((p.get("ins") or {}).get("lat"), (p.get("ins") or {}).get("lon"))
+               for p in path)
+
+
+def place_local_track(path, origin):
+    """The path with the local north/east position placed at the origin's centre as `ins` lat/lon (flat earth; no
+    rotation, so only a rough location). Only for tracks without GPS; `position` (GPS) stays empty, so places,
+    distance and weather never use these coordinates. Returns a new list; the cached path is not changed."""
+    if origin is None or not has_local_track(path):
+        return path
+    lat0, lon0 = math.radians(origin["lat"]), origin["lon"]
+    out = []
+    for p in path:
+        ins = p.get("ins") or {}
+        ned = ins.get("position_ned_m") or {}
+        n, e = ned.get("north"), ned.get("east")
+        if (valid_gps_location(ins.get("lat"), ins.get("lon")) or not isinstance(n, (int, float))
+                or not isinstance(e, (int, float)) or not math.isfinite(n) or not math.isfinite(e)):
+            out.append(p)
+            continue
+        lat = origin["lat"] + math.degrees(n / EARTH_RADIUS_M)
+        lon = lon0 + math.degrees(e / (EARTH_RADIUS_M * math.cos(lat0)))
+        out.append({**p, "ins": {**ins, "lat": round(lat, 8), "lon": round(lon, 8), "placed": True}})
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------------------------------------------------
@@ -289,6 +345,7 @@ def parse_log(log_id):
                 kept = snapshot_flight_edits(con, log_id)
                 kept_files = attachments.snapshot(con, log_id)
                 db.store_parsed(con, log_id, doc, paths_rel)
+                mark_default_names_shared(con, log_id)  # "ArduPilot-1" never links by name
                 link_log_aircraft(con, log_id)
                 assign_log_flights(con, log_id, kept)
                 assign_paired_logs(con, log_id)
@@ -362,6 +419,9 @@ def start_workers():
     HAVE_PATH_GZ = "path_gz" in {r[1] for r in con.execute("PRAGMA table_info(flights)")}
     backfill_gps_positions(con)
     seed_drone_projects_from_defaults(con)
+    if marked := mark_default_names_shared(con):
+        app.logger.warning("marked default autopilot name(s) as shared: %s", ", ".join(marked))
+    con.commit()
     relink_unlinked_aircraft(con)
     if gone := remove_file_name_aliases(con):
         app.logger.warning("removed %d aircraft alias(es) that were only a log file name", gone)
@@ -2212,15 +2272,44 @@ def remove_file_name_aliases(con):
     return gone
 
 
-def guess_drone_from_log_path(con, log_name):
+# The autopilot family of a log type; an aircraft does not switch autopilots, so it narrows folder guesses and the
+# Link to aircraft list. A .tlog is MAVLink from PX4 or ArduPilot alike, so it has none.
+AUTOPILOT_OF_LOG_TYPE = {"onboard_sd": "Paparazzi", "gcs": "Paparazzi", "px4_ulog": "PX4", "ardupilot": "ArduPilot",
+                         "betaflight": "Betaflight", "indiflight": "Betaflight", "blackbox": "Betaflight"}
+
+
+def log_autopilot(log_type, log_name=None):
+    """The autopilot family of a log ('Paparazzi', 'PX4', 'ArduPilot', 'Betaflight'), or None (a .tlog)."""
+    return AUTOPILOT_OF_LOG_TYPE.get(_type_of({"log_type": log_type, "log_name": log_name}))
+
+
+def drone_autopilot_counts(con):
+    """{drone id: {autopilot family: number of linked logs}} from the logs already linked to each aircraft."""
+    out = {}
+    for r in con.execute("SELECT a.drone_id, l.log_type, l.name, COUNT(DISTINCT l.id) AS n FROM aircraft a"
+                         " JOIN logs l ON l.id=a.log_id WHERE a.drone_id IS NOT NULL GROUP BY a.drone_id, l.log_type,"
+                         " l.log_type IS NULL AND l.name LIKE '%\\_SD.data' ESCAPE '\\'"):
+        family = log_autopilot(r["log_type"], r["name"])
+        if family:
+            counts = out.setdefault(r["drone_id"], {})
+            counts[family] = counts.get(family, 0) + r["n"]
+    return out
+
+
+def guess_drone_from_log_path(con, log_name, autopilot=None, autopilots=None):
     """If a folder in the upload path uniquely matches one fleet aircraft, use that.
 
     PX4 and Blackbox logs often lack a fleet nickname; the dropped folder is named after the aircraft
     even when the files sit in dated subfolders. The deepest folder is tried first, so a person or project
     folder above it does not win. Only a unique match links, so 'Quadrotor' does not steal every quad.
+    With the log's autopilot family and {drone id: families it flies}, an aircraft that only flies another
+    autopilot is no match (aircraft do not switch autopilots; one without logs yet still is): it is not guessed
+    alone, and among several matches the only one that fits wins.
     """
     for folder in reversed(log_folder_labels(log_name)):
         hits = matching_drones_for_folder(con, folder)
+        if autopilot and autopilots is not None:
+            hits = [h for h in hits if not autopilots.get(h["id"]) or autopilot in autopilots[h["id"]]]
         if len(hits) == 1:
             return hits[0]
     return None
@@ -2237,6 +2326,62 @@ def is_file_name(name, log_name=None):
         return True
     stem = posixpath.splitext(posixpath.basename((log_name or "").replace("\\", "/")))[0]
     return bool(stem) and name.casefold() == stem.casefold()
+
+
+# The name a PX4/ArduPilot/MAVLink log gets when its autopilot has no name of its own: the vehicle and its MAVLink
+# system ID. Only system ID 1 is a default (SYSID_THISMAV and PX4's MAV_SYS_ID both start at 1), so "ArduPilot-1",
+# "MAVLink-1" and "PX4-1" are on every drone where it was never changed: they never identify an aircraft, are always
+# shared, and those logs are linked by their board ID. A system ID set on purpose ("ArduCopter-12") does identify one.
+_DEFAULT_LOG_NAME = re.compile(
+    r"^(ardupilot|arducopter|arduplane|ardurover|ardusub|antennatracker|blimp|mavlink|px4)[ -]?0*1$", re.I)
+
+
+def is_default_log_name(name):
+    """True for an autopilot's default name such as 'ArduPilot-1' (see _DEFAULT_LOG_NAME)."""
+    return bool(_DEFAULT_LOG_NAME.match((name or "").strip()))
+
+
+def mark_default_names_shared(con, log_id=None):
+    """Mark default autopilot names (of one log, or of all logs) as shared names, as an admin would with Mark a name
+    as shared: an alias with that name goes, boards learned automatically through it are forgotten, and the logs with
+    it are linked again (by board ID, a hand link or the other recording of the same flight). Returns the names newly
+    marked. The caller commits."""
+    where, params = ("WHERE log_id=?", (log_id,)) if log_id is not None else ("", ())
+    marked, forgotten = [], []
+    for r in con.execute(f"SELECT DISTINCT TRIM(name) AS name FROM aircraft {where}", params).fetchall():
+        name = r["name"]
+        if not is_default_log_name(name) or con.execute(
+                "SELECT 1 FROM ambiguous_drone_names WHERE name=?", (name,)).fetchone():
+            continue
+        if con.execute("SELECT 1 FROM drones WHERE name=? OR unique_id=?", (name, name)).fetchone():
+            continue  # a fleet aircraft really is called that: leave it to the admins
+        alias = con.execute("SELECT drone_id FROM drone_aliases WHERE alias=?", (name,)).fetchone()
+        con.execute("INSERT OR IGNORE INTO ambiguous_drone_names(name) VALUES(?)", (name,))
+        con.execute("DELETE FROM drone_aliases WHERE alias=?", (name,))
+        # boards learned automatically through that alias (on its drone) are forgotten, unless a log under one of that
+        # drone's own names also has the board (then it was learned rightly); hand links stay
+        if alias:
+            boards = [r[0] for r in con.execute(
+                "SELECT mcu_uid FROM drone_boards WHERE source='auto' AND drone_id=? AND mcu_uid IN (SELECT mcu_uid"
+                " FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE AND mcu_uid IS NOT NULL) AND mcu_uid NOT IN ("
+                " SELECT a.mcu_uid FROM aircraft a WHERE a.mcu_uid IS NOT NULL AND TRIM(a.name)!=? COLLATE NOCASE"
+                " AND (EXISTS (SELECT 1 FROM drone_aliases da WHERE da.alias=TRIM(a.name) AND da.drone_id=?)"
+                " OR EXISTS (SELECT 1 FROM drones d WHERE d.name=TRIM(a.name) AND d.id=?)))",
+                (alias["drone_id"], name, name, alias["drone_id"], alias["drone_id"]))]
+            con.executemany("DELETE FROM drone_boards WHERE mcu_uid=? AND source='auto'", [(b,) for b in boards])
+            forgotten.extend(boards)
+        marked.append(name)
+    for name in marked:
+        for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE"
+                               + (" AND log_id!=?" if log_id is not None else ""),
+                               (name, log_id) if log_id is not None else (name,)).fetchall():
+            link_log_aircraft(con, row["log_id"], logged_name=name)
+    for board in forgotten:  # logs placed through a forgotten board under any other name follow too
+        for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE mcu_uid=?"
+                               + (" AND log_id!=?" if log_id is not None else ""),
+                               (board, log_id) if log_id is not None else (board,)).fetchall():
+            link_log_aircraft(con, row["log_id"])
+    return marked
 
 
 def remember_drone_log_identity(con, drone_id, logged_name, log_name=None):
@@ -2411,7 +2556,7 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         boards = board_map(con)
         if cache is not None:
             cache["boards"] = boards
-    log = con.execute("SELECT name FROM logs WHERE id=?", (log_id,)).fetchone()
+    log = con.execute("SELECT name, log_type FROM logs WHERE id=?", (log_id,)).fetchone()
     log_name = log["name"] if log else ""
     where, params = "log_id=?", [log_id]
     if logged_name is not None:
@@ -2438,7 +2583,20 @@ def link_log_aircraft(con, log_id, *, logged_name=None, ac_id=None, remember_ide
         if d is None and board and boards.get(board):
             d = drones.get(boards[board])  # an ambiguous or unknown name on a known board
         if d is None and not ambiguous:
-            d = guess_drone_from_log_path(con, log_name)
+            autopilot = log_autopilot(log["log_type"], log_name) if log else None
+            counts = None
+            if autopilot:
+                if cache is not None and "autopilots" in cache:
+                    counts = cache["autopilots"]
+                else:
+                    counts = drone_autopilot_counts(con)
+                    if cache is not None:
+                        cache["autopilots"] = counts
+            # what each aircraft flies, without this log itself (an earlier wrong link must not confirm itself)
+            autopilots = None if counts is None else {
+                drone: {f for f, n in c.items() if n - (f == autopilot and drone == a["drone_id"]) > 0}
+                for drone, c in counts.items()}
+            d = guess_drone_from_log_path(con, log_name, autopilot, autopilots)
         if d is not None and not ambiguous and not override and remember_identity:
             remember_drone_log_identity(con, d["id"], a["name"], log_name)
             drones, names = drone_name_map(con)
@@ -2512,12 +2670,13 @@ def pick_project_for_user(con, user_id, aircraft_project_id):
 
 
 def snapshot_flight_edits(con, log_id):
-    """Keep edited flight project, crew, operator, category and classification across a re-parse (flights are deleted
+    """Keep edited flight project, crew, operator, category, classification and track origin across a re-parse (flights are deleted
     with the aircraft rows)."""
     return {(r["ac_id"], r["idx"]): dict(r) for r in con.execute(
         "SELECT a.ac_id, f.idx, f.project_id, f.project_source, f.pic_user_id, f.pac_user_id, f.gcs_user_id, f.comment, f.hidden,"
         " f.operator_id, f.category, f.authorisation_id, f.verdict_override, f.goal_override, f.preflight_by, f.preflight_at,"
-        " f.preflight_special, f.tags FROM flights f JOIN aircraft a ON a.id = f.aircraft_id WHERE a.log_id=?", (log_id,))}
+        " f.preflight_special, f.tags, f.track_origin_place_id FROM flights f JOIN aircraft a ON a.id = f.aircraft_id"
+        " WHERE a.log_id=?", (log_id,))}
 
 
 def drone_periods(con, drone_id):
@@ -2776,12 +2935,13 @@ def assign_log_flights(con, log_id, kept=None):
         if restore:
             con.execute("UPDATE flights SET pic_user_id=?, pac_user_id=?, gcs_user_id=?, comment=?, hidden=?, operator_id=?,"
                         " category=?, authorisation_id=?, verdict_override=?, goal_override=?, preflight_by=?, preflight_at=?,"
-                        " preflight_special=?, tags=? WHERE id=?",
+                        " preflight_special=?, tags=?, track_origin_place_id=? WHERE id=?",
                         (restore.get("pic_user_id"), restore.get("pac_user_id"), restore.get("gcs_user_id"),
                          restore.get("comment"), restore.get("hidden", 0), restore.get("operator_id"),
                          restore.get("category"), restore.get("authorisation_id"), restore.get("verdict_override"),
                          restore.get("goal_override"), restore.get("preflight_by"), restore.get("preflight_at"),
-                         restore.get("preflight_special"), restore.get("tags"), f["id"]))
+                         restore.get("preflight_special"), restore.get("tags"), restore.get("track_origin_place_id"),
+                         f["id"]))
         saved = restore.get("project_id")
         source = restore.get("project_source") if restore else f["project_source"]
         if source == "manual":
@@ -3084,6 +3244,8 @@ def admin_delete_place(place_id):
     if con.execute("SELECT 1 FROM flight_records WHERE place_id=?", (place_id,)).fetchone():
         return jsonify(error="This location has historical records. Reassign or remove those records first."), 409
     con.execute("UPDATE users SET home_place_id=NULL WHERE home_place_id=?", (place_id,))  # also for older databases
+    for table in ("flights", "projects"):
+        con.execute(f"UPDATE {table} SET track_origin_place_id=NULL WHERE track_origin_place_id=?", (place_id,))
     con.execute("DELETE FROM places WHERE id=?", (place_id,))
     con.commit()
     return jsonify(ok=True)
@@ -3368,11 +3530,13 @@ def list_projects():
     """Projects this user can open. Admins get every project."""
     con = conn()
     if g.user["is_admin"]:
-        rows = con.execute("SELECT id, name, operator_id, category, authorisation_id, 'full' AS role FROM projects"
+        rows = con.execute("SELECT id, name, operator_id, category, authorisation_id, track_origin_place_id, 'full' AS role"
+                           " FROM projects"
                            " ORDER BY name").fetchall()
     else:
         rows = con.execute(
-            "SELECT p.id, p.name, p.operator_id, p.category, p.authorisation_id, m.role FROM projects p"
+            "SELECT p.id, p.name, p.operator_id, p.category, p.authorisation_id, p.track_origin_place_id, m.role"
+            " FROM projects p"
             " JOIN project_members m ON m.project_id = p.id"
             " WHERE m.user_id=? ORDER BY p.name", (g.user["id"],)).fetchall()
     out = []
@@ -3389,7 +3553,10 @@ def list_projects():
                     "can_manage": bool(g.user["is_admin"]) or r["role"] == "manager", "members": members,
                     # the operator and category its flights fall under (shown on the Projects page)
                     "operator_id": r["operator_id"], "category": r["category"],
-                    "authorisation_id": r["authorisation_id"]})
+                    "authorisation_id": r["authorisation_id"],
+                    # where its tracks without GPS (local position only) start on the map
+                    "track_origin_place_id": r["track_origin_place_id"],
+                    "track_origin_name": place_name(con, r["track_origin_place_id"])})
     return jsonify(out)
 
 
@@ -3504,8 +3671,9 @@ def admin_import_projects():
 
 @app.put("/api/admin/projects/<int:project_id>")
 def admin_update_project(project_id):
-    """Rename a project, or set the operator its flights are flown under (operator_id; null = none) or their
-    default category (category and/or authorisation_id; both empty = none)."""
+    """Rename a project, or set the operator its flights are flown under (operator_id; null = none), their
+    default category (category and/or authorisation_id; both empty = none) or the location where its tracks without
+    GPS start on the map (track_origin_place_id; null = none)."""
     admin_required()
     body = request.get_json(silent=True) or {}
     con = conn()
@@ -3521,6 +3689,10 @@ def admin_update_project(project_id):
         operator_id = operators.parse_id(con, body["operator_id"])
         if operator_id is False:
             return jsonify(error="no such operator"), 400
+    if "track_origin_place_id" in body:
+        origin = parse_place_id(con, body["track_origin_place_id"])
+        if origin is False:
+            return jsonify(error="no such location"), 400
     if "category" in body or "authorisation_id" in body:
         try:
             category = categories.parse(con, body)
@@ -3533,6 +3705,8 @@ def admin_update_project(project_id):
             con.execute("UPDATE projects SET operator_id=? WHERE id=?", (operator_id, project_id))
         if "category" in body or "authorisation_id" in body:
             con.execute("UPDATE projects SET category=?, authorisation_id=? WHERE id=?", (*category, project_id))
+        if "track_origin_place_id" in body:
+            con.execute("UPDATE projects SET track_origin_place_id=? WHERE id=?", (origin, project_id))
         con.commit()
     except sqlite3.IntegrityError:
         con.rollback()
@@ -3573,8 +3747,11 @@ def admin_project_detail():
         n = con.execute("SELECT COUNT(*) AS n FROM logs WHERE project_id=?", (p["id"],)).fetchone()["n"]
         projects.append({"id": p["id"], "name": p["name"], "log_count": n, "members": members,
                          "operator_id": p["operator_id"], "category": p["category"],
-                         "authorisation_id": p["authorisation_id"]})
-    return jsonify(projects=projects, roles=ACCESS_ROLES)
+                         "authorisation_id": p["authorisation_id"], "track_origin_place_id": p["track_origin_place_id"],
+                         "track_origin_name": place_name(con, p["track_origin_place_id"])})
+    # the locations a project's tracks without GPS can start from (Edit project)
+    places = [dict(r) for r in con.execute("SELECT id, name, indoor FROM places ORDER BY name COLLATE NOCASE")]
+    return jsonify(projects=projects, roles=ACCESS_ROLES, places=places)
 
 
 def manages_project(con, project_id):
@@ -3636,11 +3813,12 @@ def _group_unlinked_by_board(entries):
             e.setdefault("names", [e["name"]])
             out.append(e)
             continue
-        names, folders, cand, seen_c = [], [], [], set()
+        names, folders, cand, seen_c, autopilots = [], [], [], set(), []
         count = 0
         for e in sorted(group, key=lambda x: (-x["count"], x["name"].casefold())):
             names.append(e["name"])
             count += e["count"]
+            autopilots += [f for f in e.get("autopilots") or [] if f not in autopilots]
             for folder in e["folders"]:
                 if folder not in folders:
                     folders.append(folder)
@@ -3650,7 +3828,7 @@ def _group_unlinked_by_board(entries):
                     cand.append(c)
         out.append({
             "name": names[0], "names": names, "count": count,
-            "folders": folders, "board_ids": [bid], "candidates": cand,
+            "folders": folders, "board_ids": [bid], "candidates": cand, "autopilots": autopilots,
         })
     out.sort(key=lambda e: (-e["count"], e["name"].casefold()))
     return out
@@ -3701,15 +3879,18 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
             f" OR id IN (SELECT drone_id FROM drone_projects WHERE project_id IN ({q})) ORDER BY name",
             (manager_id, *project_ids, *project_ids))
     fleet = []
+    flies = drone_autopilot_counts(con) if include_unlinked else {}
     for d in rows:
         item = drone_payload(con, d)
         item["can_edit"] = can_edit_drone_details(con, d)
+        if include_unlinked:  # for the Link to aircraft list: the same autopilot first
+            item["autopilots"] = sorted(flies.get(d["id"], {}))
         fleet.append(item)
     unlinked, projects = [], []
     if include_unlinked:
         seen = {}
         for a in con.execute(
-                "SELECT a.name AS ac_name, l.name AS log_name FROM aircraft a "
+                "SELECT a.name AS ac_name, l.name AS log_name, l.log_type FROM aircraft a "
                 "JOIN logs l ON l.id = a.log_id WHERE a.drone_id IS NULL AND a.name IS NOT NULL "
                 "AND TRIM(a.name) != ''"):
             ac_name = (a["ac_name"] or "").strip()
@@ -3718,8 +3899,10 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
             key = ac_name.casefold()
             if key in names and names[key] is None:
                 continue
-            e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": []})
+            e = seen.setdefault(key, {"name": ac_name, "count": 0, "folders": [], "board_ids": [], "autopilots": []})
             e["count"] += 1
+            if (family := log_autopilot(a["log_type"], a["log_name"])) and family not in e["autopilots"]:
+                e["autopilots"].append(family)
             for folder in log_folder_labels(a["log_name"]):
                 if folder not in e["folders"]:
                     e["folders"].append(folder)
@@ -3744,16 +3927,18 @@ def fleet_payload(con, include_unlinked=False, project_ids=None, manager_id=None
             recordings = []
             for r in con.execute(
                     "SELECT a.log_id,a.ac_id,a.drone_id,a.mcu_uid,a.simulation,b.drone_id AS board_drone_id,"
-                    " l.name AS log_name,"
+                    " l.name AS log_name, l.log_type,"
                     " EXISTS(SELECT 1 FROM log_aircraft_links x WHERE x.log_id=a.log_id AND x.ac_id=a.ac_id) AS manual"
                     " FROM aircraft a JOIN logs l ON l.id=a.log_id LEFT JOIN drone_boards b ON b.mcu_uid=a.mcu_uid"
                     " WHERE TRIM(a.name)=? COLLATE NOCASE ORDER BY l.name,a.ac_id", (row["name"],)):
                 r = dict(r)
+                r["autopilot"] = log_autopilot(r.pop("log_type"), r["log_name"])
                 # A simulated run reports the PC's machine ID, which is not a board (see link_log_aircraft).
                 if (json.loads(r.pop("simulation") or "{}") or {}).get("detected"):
                     r["mcu_uid"] = r["board_drone_id"] = None
                 recordings.append(r)
-            ambiguous.append(dict(name=row["name"], recordings=recordings))
+            ambiguous.append(dict(name=row["name"], recordings=recordings,
+                                  default_name=is_default_log_name(row["name"])))  # always shared
     excluded = board_payload(con, None) if include_unlinked else []
     return dict(drones=fleet, unlinked=unlinked, projects=projects, ambiguous=ambiguous, excluded_boards=excluded)
 
@@ -4222,6 +4407,9 @@ def admin_add_drone_alias():
     con = conn()
     if not con.execute("SELECT 1 FROM drones WHERE id=?", (drone_id,)).fetchone():
         return jsonify(error="no such aircraft"), 404
+    if is_default_log_name(alias):
+        return jsonify(error=f"{alias} is an autopilot's default name, shared by every drone where it was never "
+                             "changed; link the board ID of its logs instead (Shared names)."), 409
     if name_taken(con, alias, drone_id):
         return jsonify(error="that name is already used by an aircraft or alias"), 409
     try:
@@ -4254,6 +4442,9 @@ def admin_ambiguous_drone_name():
             for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE", (name,)):
                 link_log_aircraft(con, row["log_id"], logged_name=name)
     else:
+        if is_default_log_name(name):
+            return jsonify(error=f"{name} is an autopilot's default name and stays shared; link the boards of its "
+                                 "logs instead."), 409
         with con:
             con.execute("DELETE FROM ambiguous_drone_names WHERE name=?", (name,))
             for row in con.execute("SELECT DISTINCT log_id FROM aircraft WHERE TRIM(name)=? COLLATE NOCASE", (name,)):
@@ -5023,6 +5214,40 @@ def set_flight_goal(flight_id):
     con.execute("UPDATE flights SET goal_override=? WHERE id=?", (goal, flight_id))
     con.commit()
     return jsonify(ok=True, goal=goal)
+
+
+def place_name(con, place_id):
+    row = con.execute("SELECT name FROM places WHERE id=?", (place_id,)).fetchone() if place_id is not None else None
+    return row["name"] if row else None
+
+
+def parse_place_id(con, raw):
+    """A location id from a request: the id, None for empty/null, or False when there is no such location."""
+    if raw in (None, ""):
+        return None
+    try:
+        place_id = int(raw)
+    except (TypeError, ValueError):
+        return False
+    return place_id if con.execute("SELECT 1 FROM places WHERE id=?", (place_id,)).fetchone() else False
+
+
+@app.put("/api/flights/<int:flight_id>/track-origin")
+def set_flight_track_origin(flight_id):
+    """Set the location where this flight's track without GPS starts on the map ({"place_id": id}; null = the
+    project's default). Same rights as the goal; kept across a re-parse."""
+    con = conn()
+    _, err = visible_editable_flight(con, flight_id)
+    if err == "missing":
+        abort(404)
+    if err == "forbidden":
+        return jsonify(error="you cannot change the track origin of this flight"), 403
+    place_id = parse_place_id(con, (request.get_json(silent=True) or {}).get("place_id"))
+    if place_id is False:
+        return jsonify(error="no such location"), 400
+    con.execute("UPDATE flights SET track_origin_place_id=? WHERE id=?", (place_id, flight_id))
+    con.commit()
+    return jsonify(ok=True)
 
 
 @app.put("/api/flights/<int:flight_id>/tags")
@@ -7632,7 +7857,14 @@ def flight_detail(flight_id):
     invalid_reports = config.get("invalid_setting_reports") or []
     apply_clock_to_obj(invalid_reports, days)
     versions, from_gcs = with_gcs_autopilot_fallback(json.loads(row["autopilot_versions"] or "[]"), row["log_path"])
+    origin = None
+    if has_local_track(path):  # no GPS, only a local position: drawn from a chosen location (Edit flight)
+        origin = track_origin(con, flight_id)
+        path = place_local_track(path, origin)
+        origin = dict(origin or {}, places=[dict(r) for r in con.execute(
+            "SELECT id, name, indoor FROM places ORDER BY name COLLATE NOCASE")])
     return gzip_json(jsonify(
+        track_origin=origin,
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
         operation=operations.flight_operation(con, entry), time_zone=operations.zone().key,
         previous_flight_id=previous_flight_id, next_flight_id=next_flight_id,
@@ -8123,9 +8355,11 @@ def get_path(flight_id):
         f" JOIN logs l ON l.id = a.log_id WHERE f.id=? AND {where}", (flight_id, *params)).fetchone()
     if row is None:
         abort(404)
-    return gzip_json(jsonify(flight_path(row["paths_file"], row["path_idx"],
-                                         clock_shift_days(row["start_utc"], row["date_override"]),
-                                         row["path_gz"] if HAVE_PATH_GZ else None)))
+    path = flight_path(row["paths_file"], row["path_idx"], clock_shift_days(row["start_utc"], row["date_override"]),
+                       row["path_gz"] if HAVE_PATH_GZ else None)
+    if has_local_track(path):
+        path = place_local_track(path, track_origin(conn(), flight_id))
+    return gzip_json(jsonify(path))
 
 
 # MATLAB export (matlab_export.py): browser users who may download the log request a .mat file, which is built in
