@@ -340,7 +340,8 @@ function renderPanel() {
     $('ptab-' + t).setAttribute('aria-selected', String(ptab === t));
     $('ptab-' + t).tabIndex = ptab === t ? 0 : -1;
   }
-  const row = admin ? editRow : (key, label, value) => plainRow(label, value);
+  // the panel is for admins and the project's managers; managers change only its track origin and members
+  const row = (key, label, value) => admin || key === 'origin' ? editRow(key, label, value) : plainRow(label, value);
   if (ptab === 'members') {
     $('projectContent').innerHTML = members.length ? `<table><colgroup><col style="width:55%"><col></colgroup><tbody>${members.map(m =>
       `<tr><td><a href="/people/${m.user_id}">${esc(m.display_name || m.username)}</a></td><td class="edit-val" data-edit-field="members" title="${esc(ACCESS_HELP)}">${esc(accessLabel(m.role))}</td></tr>`).join('')}</tbody></table>`
@@ -388,22 +389,26 @@ function editDialog(title, what, fields, save, focus, remove) {
 const field = (key, label, control, wide) => `<label class="field${wide ? ' wide' : ''}">${label}${control}<span class="field-error" data-error="${key}"></span></label>`;
 const val = name => $('editFields').querySelector(`[name=${name}]`);
 let memberEdit = null;  // {project, rows: [{user_id, name, role, was}]}
-function openEditProject(focus) {
+async function openEditProject(focus) {
   const p = projects.find(x => x.id === selected && canOpen(x));
   if (!p) return;
   const admin = isAdmin();
+  // a manager sets the project's track origin from the locations they may see (admins: every location, loaded above)
+  let origin = null;
+  if (!admin) try { origin = await read(`/api/projects/${p.id}/track-origin`); } catch (e) { $('err').textContent = e.message; return; }
+  const originField = (choices, value) => field('origin', 'Track origin (no GPS)', `<select name="origin" title="${esc(ORIGIN_HELP)}"><option value="">None</option>${choices.map(l =>
+    `<option value="${l.id}"${l.id === value ? ' selected' : ''}>${esc(l.name)}${l.indoor ? ' (indoor)' : ''}</option>`).join('')}</select>`);
   memberEdit = {project: p, rows: (p.members || []).map(m => ({user_id: m.user_id, name: m.display_name || m.username, role: m.role, was: m.role}))};
   const operatorOptions = () => `<option value="">No preference: the location's, else our own</option>${operators.map(o =>
     `<option value="${o.id}"${o.id === p.operator_id ? ' selected' : ''}>${esc(operatorLabel(o))}</option>`).join('')}${NEW_OPERATOR_OPTION}`;
   const operatorSelect = `<select name="operator">${operatorOptions()}</select>`;
-  editDialog(`Edit project ${p.name}`, admin ? '' : 'You manage this project: you change its members (only administrators appoint managers).', `
+  editDialog(`Edit project ${p.name}`, admin ? '' : 'You manage this project: you change its track origin and members (only administrators appoint managers).', `
     ${admin ? `<div class="edit-grid two">
       ${field('name', 'Name', `<input name="name" required maxlength="80" value="${esc(p.name)}">`, true)}
       ${field('operator', 'Operator of its flights', operatorSelect)}
       ${field('category', 'Category of its flights', `<select name="category"><option value="">No preference: the location's, else OPEN</option>${categoryOptions(authorisations, categoryValue(p))}</select>`)}
-      ${field('origin', 'Track origin (no GPS)', `<select name="origin" title="${esc(ORIGIN_HELP)}"><option value="">None</option>${places.map(l =>
-        `<option value="${l.id}"${l.id === p.track_origin_place_id ? ' selected' : ''}>${esc(l.name)}${l.indoor ? ' (indoor)' : ''}</option>`).join('')}</select>`)}
-    </div>` : ''}
+      ${originField(places, p.track_origin_place_id)}
+    </div>` : `<div class="edit-grid two">${originField(origin.places, origin.place_id)}</div>`}
     <h4>Members</h4>
     <div class="member-rows" id="memberRows"></div>
     <div class="member-add"><input type="search" id="memberSearch" placeholder="Add a member: search name, username or alias" autocomplete="off"></div>
@@ -418,7 +423,8 @@ function openEditProject(focus) {
       if (categoryValue(p) !== val('category').value) Object.assign(body, categoryChoice(val('category').value));
       if (String(p.track_origin_place_id ?? '') !== val('origin').value) body.track_origin_place_id = val('origin').value ? +val('origin').value : null;
       if (Object.keys(body).length && !await call('PUT', `/api/admin/projects/${p.id}`, body, out('name'))) failed++;
-    }
+    } else if (String(origin.place_id ?? '') !== val('origin').value
+               && !await call('PUT', `/api/projects/${p.id}/track-origin`, {place_id: val('origin').value ? +val('origin').value : null}, out('origin'))) failed++;
     for (const r of memberEdit.rows.filter(r => r.role !== r.was))
       if (!await call('PUT', `/api/projects/${p.id}/members`, {user_id: r.user_id, role: r.role || ''}, out('members'))) failed++;
     return failed;

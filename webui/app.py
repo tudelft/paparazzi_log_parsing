@@ -254,6 +254,26 @@ def track_origin(con, flight_id):
                 project_place=dict(id=project["id"], name=project["name"]) if project is not None else None)
 
 
+def origin_places(con, *keep):
+    """The locations this person may choose as a track origin (Edit flight, Edit project): administrators every one,
+    others only those they may see on the Locations page (where a flight they can see took off or landed, as in
+    list_places), plus `keep` (the current values, so they stay shown). [{id, name, indoor}]"""
+    rows = [dict(r) for r in con.execute("SELECT id, name, indoor FROM places ORDER BY name COLLATE NOCASE")]
+    if g.user["is_admin"]:
+        return rows
+    seen = {k for k in keep if k is not None}
+    for f in logbook_rows(hide_unlinked=env_bool("HIDE_UNLINKED_AIRCRAFT")):
+        seen.update({f.get("takeoff_place_id"), f.get("landing_place_id")} - {None})
+    return [r for r in rows if r["id"] in seen]
+
+
+def origin_ids(con, flight_id):
+    """(the flight's own track origin, its project's) place ids."""
+    row = con.execute("SELECT f.track_origin_place_id AS flight, p.track_origin_place_id AS project FROM flights f"
+                      " LEFT JOIN projects p ON p.id = f.project_id WHERE f.id=?", (flight_id,)).fetchone()
+    return (row["flight"], row["project"]) if row else (None, None)
+
+
 def has_local_track(path):
     """A path without any GPS position but with a local (north/east) position that has no map coordinates of its
     own (Paparazzi logs place theirs from the logged origin), e.g. motion capture or simulation."""
@@ -3759,6 +3779,28 @@ def manages_project(con, project_id):
     return bool(g.user["is_admin"]) or (project_id is not None and role_on(con, project_id) == "manager")
 
 
+@app.route("/api/projects/<int:project_id>/track-origin", methods=["GET", "PUT"])
+def project_track_origin(project_id):
+    """The location where the project's tracks without GPS start on the map, for its managers (and admins): GET
+    {place_id, places} (the locations they may choose: those they may see), PUT {"place_id": id or null}."""
+    con = conn()
+    row = con.execute("SELECT track_origin_place_id FROM projects WHERE id=?", (project_id,)).fetchone()
+    if row is None:
+        abort(404)
+    if not manages_project(con, project_id):
+        abort(403)
+    current = row["track_origin_place_id"]
+    if request.method == "GET":
+        return jsonify(place_id=current, places=origin_places(con, current))
+    session_required()
+    place_id = parse_place_id(con, (request.get_json(silent=True) or {}).get("place_id"))
+    if place_id is False or (place_id is not None and place_id not in {p["id"] for p in origin_places(con, current)}):
+        return jsonify(error="no such location"), 400
+    con.execute("UPDATE projects SET track_origin_place_id=? WHERE id=?", (place_id, project_id))
+    con.commit()
+    return jsonify(ok=True)
+
+
 @app.put("/api/admin/projects/<int:project_id>/members")
 @app.put("/api/projects/<int:project_id>/members")
 def admin_set_member(project_id):
@@ -5243,8 +5285,9 @@ def set_flight_track_origin(flight_id):
     if err == "forbidden":
         return jsonify(error="you cannot change the track origin of this flight"), 403
     place_id = parse_place_id(con, (request.get_json(silent=True) or {}).get("place_id"))
-    if place_id is False:
-        return jsonify(error="no such location"), 400
+    if place_id is False or (place_id is not None and place_id not in
+                             {p["id"] for p in origin_places(con, *origin_ids(con, flight_id))}):
+        return jsonify(error="no such location"), 400  # also one this person may not see
     con.execute("UPDATE flights SET track_origin_place_id=? WHERE id=?", (place_id, flight_id))
     con.commit()
     return jsonify(ok=True)
@@ -7861,8 +7904,7 @@ def flight_detail(flight_id):
     if has_local_track(path):  # no GPS, only a local position: drawn from a chosen location (Edit flight)
         origin = track_origin(con, flight_id)
         path = place_local_track(path, origin)
-        origin = dict(origin or {}, places=[dict(r) for r in con.execute(
-            "SELECT id, name, indoor FROM places ORDER BY name COLLATE NOCASE")])
+        origin = dict(origin or {}, places=origin_places(con, *origin_ids(con, flight_id)))
     return gzip_json(jsonify(
         track_origin=origin,
         entry=entry, flight_id=flight_id, log_id=row["log_id"], log_type=_type_of(dict(row)),
