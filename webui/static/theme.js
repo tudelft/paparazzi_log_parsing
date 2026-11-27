@@ -500,7 +500,7 @@ window.tagInput = function (box, {values = [], mode = 'edit', placeholder = 'Add
     const ids = new Set(shownFlights.flatMap(f => f.log_ids || []));
     const flightIds = new Set(allFlights.flatMap(f => f.log_ids || []));
     return logs.filter(l => ids.has(l.id) || (state.nologs && l.status === 'done'
-      && l.num_flights === 0 && !flightIds.has(l.id)
+      && l.num_flights === 0 && !flightIds.has(l.id) && this.includesTags(l)  // its upload tags (#396)
       && this.includesDate({takeoff_utc: l.start_utc, date_ok: l.date_ok, date_override: l.date_override})));
   },
   params() {

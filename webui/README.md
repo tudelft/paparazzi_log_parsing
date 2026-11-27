@@ -82,7 +82,9 @@ Logbook has a **Pre-flight** column (hidden by default, under **Columns**), and 
   and keep their tags. The Logbook has a **Tags** column (hidden by default, under **Columns**), and the
   search finds tags too. Admins manage the list under **Logbook → Manage ▾ → Tags…**: rename, merge or delete a tag,
   and mark one **hidden by default**, so its entries stay out of the logbook and totals until a filter asks for it
-  (for simulation studies, for instance).
+  (for simulation studies, for instance). Logs follow their tags too: on **Logs** (Directory ▾) and as Logbook rows
+  without flights, a log has the tags given at upload and those of its flights, and Flight filters' tags hide it;
+  tick logs on **Logs** and use **Tags…** to tag them and their flights (also a log that produced no flight).
 - Use **Flight filters** in the top menu to select a period (default: last three years), custom
   UTC dates, **Tags** (✓ only entries with a tag, ⊘ leave them out; click a tag to switch), **Hide indoor / no-GPS flights**, **Hide non-flights**, **Hide logs without flights** and **Hide unknown
   dates**, and under **More filters** the operator and category. Non-flights are ground runs, uncertain flights and simulations. Logs without flights are parsed logs that

@@ -524,9 +524,9 @@ async function applyBulk() {
 // Tags… for the ticked entries (#368): the union of their tags; Apply adds the new ones to all and removes the ✕ ones
 let tagsField = null, tagsBefore = [];
 function openTags() {
-  tagsBefore = [...new Set(pickedFlights().flatMap(f => f.tags || []))].sort((a, b) => a.localeCompare(b));
+  tagsBefore = [...new Set([...pickedFlights(), ...pickedLogs()].flatMap(f => f.tags || []))].sort((a, b) => a.localeCompare(b));
   tagsField = tagInput($('tagsField'), {values: tagsBefore});
-  const n = pickedFlights().length;
+  const n = pickedFlights().length + pickedLogs().length;
   $('tagsTitle').textContent = `Tags of ${n} ticked ${n === 1 ? 'entry' : 'entries'}`;
   $('tagsError').textContent = '';
   $('tagsDialog').showModal();
@@ -539,7 +539,14 @@ async function applyTags() {
   const remove = tagsBefore.filter(b => !now.some(t => low(t) === low(b)))
     .map(b => catalog.find(t => low(t.name) === low(b))?.id).filter(id => id != null);
   if (!add.length && !remove.length) { $('tagsDialog').close(); return; }
-  if (!await updateRecords([...selected], {tags_add: add, tags_remove: remove}, $('tagsError'))) return;
+  const logIds = pickedLogs().map(l => l.id), records = [...selected].filter(k => !k.startsWith('nolog:'));
+  if (records.length && !await updateRecords(records, {tags_add: add, tags_remove: remove}, $('tagsError'))) return;
+  if (logIds.length) {  // logs without flights keep them as their upload tags (#396)
+    const r = await fetch('/api/logs/tags', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({log_ids: logIds, tags_add: add, tags_remove: remove})});
+    if (!r.ok) { $('tagsError').textContent = (await r.json().catch(() => ({}))).error || 'Could not save the tags.'; return; }
+    await loadNoFlightLogs();
+  }
   $('tagsDialog').close();
   tagCatalog(true);
   $('bulkMsg').textContent = 'Saved.';
@@ -1131,8 +1138,8 @@ function renderSelBar() {
   // Change… and Same flight only for who may change entries at all; disabled when some ticked ones are not theirs
   const changer = !!me?.is_admin || flights.some(f => f.can_edit_crew);
   $('bulkChange').hidden = $('sameFlightBtn').hidden = $('bulkTags').hidden = !changer;
-  allow($('bulkTags'), logs.length ? 'Logs without flights have no tags: untick them'
-    : locked ? `You may not change ${locked} of the ticked entries` : '');
+  const lockedLogs = logs.filter(l => !l.can_edit_date).length;
+  allow($('bulkTags'), locked + lockedLogs ? `You may not change ${locked + lockedLogs} of the ticked entries` : '');
   allow($('bulkChange'), logs.length && picked.length ? 'Logs without flights only change their project: tick them on their own'
     : logs.some(l => !l.can_edit_project) ? "Only administrators change a log's project"
     : locked ? `You may not change ${locked} of the ticked entries` : '');
@@ -1236,7 +1243,7 @@ function render() {
   const logText = l => [l.name, l.aircraft_names, l.project_name, TYPE_LABEL[l.log_type] || l.log_type, 'no flight',
     l.date_ok ? fmtDate(l.start_utc) : 'date unknown', l.date_override].join(' ').toLowerCase();
   const shownLogs = window.flightFilters.state.nologs && !$('filesFilter').value && !$('hiddenRecords').checked
-    ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
+    ? noFlightLogs.filter(l => window.flightFilters.includesDate(l) && window.flightFilters.includesTags(l) && (!q || q.split(/\s+/).every(w => logText(l).includes(w)))) : [];
   if (shownLogs.length) {
     const logEntries = $('combine').checked ? combineLogs(shownLogs) : shownLogs.map(l => ({logs: [l], id: l.record_key}));
     const key = e => latest(e.logs ? e.logs[0] : e.flights[0]);

@@ -60,6 +60,8 @@
   .menu-wrap[hidden] { display:none; }
   #logSearch, #logStatus, #logPageSize { font:inherit; padding:4px 8px; border:1px solid var(--fieldline, #dfe3e8); border-radius:6px; background:var(--field, #fff); color:var(--txt); }
   #logSearch { flex:0 1 260px; min-width:0; }
+  table.logs td.chk, table.logs th.chk { width:28px; padding-right:0; }
+  table.logs .tag-chip { margin-left:4px; font-size:11px; }
 </style>
 </head>
 <body>
@@ -105,8 +107,23 @@
       <span id="pageInfo"></span>
       <div id="uploadPages" class="navigation-pages"></div>
     </div>
+    <div id="selBar" class="sel-bar" hidden role="region" aria-label="Selected logs">
+      <strong id="selCount"></strong>
+      <button type="button" id="logTagsBtn" onclick="openLogTags()" title="Add or remove tags of the ticked logs and their flights">Tags…</button>
+      <button type="button" onclick="ticked.clear(); lastRows = ''; refresh()">Clear</button>
+    </div>
   </section>
 </main>
+<dialog class="entry-dialog" id="logTagsDialog" aria-labelledby="logTagsTitle" style="width:min(480px,calc(100% - 32px))">
+  <div class="dialog-header"><h2 id="logTagsTitle">Tags</h2><button type="button" onclick="$('logTagsDialog').close()">Close</button></div>
+  <form onsubmit="event.preventDefault(); applyLogTags()">
+    <p class="mute" style="margin:0 0 8px">Tags of the ticked logs and their flights: add one to all of them, or ✕ removes it from
+    all of them. A new name makes a new tag. Flight filters hide logs by their tags, also here.</p>
+    <label class="field">Tags<div id="logTagsField"></div></label>
+    <p class="dialog-error" id="logTagsError" role="alert"></p>
+    <div class="row"><button type="submit" class="primary">Apply</button> <button type="button" class="sec" onclick="$('logTagsDialog').close()">Cancel</button></div>
+  </form>
+</dialog>
 <dialog class="entry-dialog" id="logFilesDialog" aria-labelledby="logFilesTitle" style="width:min(900px,calc(100% - 32px))" onkeydown="if(event.key==='Escape'){event.preventDefault();this.close();}">
   <div class="dialog-header"><h2 id="logFilesTitle">Additional files</h2><button type="button" onclick="$('logFilesDialog').close()" aria-label="Close Additional files">Close</button></div>
   <p class="mute" id="logFilesName" style="margin:4px 0 8px;overflow-wrap:anywhere"></p>
@@ -189,7 +206,54 @@ function logsQuery() {
   p.set('status', $('logStatus').value);
   if ($('logSearch').value.trim()) p.set('q', $('logSearch').value.trim());
   if (onlyLog) p.set('log', String(onlyLog));
+  else {  // the Flight filters' tags (#396): logs whose tags are left out or hidden by default are not listed
+    const f = window.flightFilters.params();
+    if (f.get('tags')) p.set('tags', f.get('tags'));
+    if (f.get('not_tags')) p.set('not_tags', f.get('not_tags'));
+  }
   return '?' + p.toString();
+}
+// Ticked logs (this page only): Tags… in the selection bar
+const ticked = new Set();
+let pageLogs = [];
+function paintSelection() {
+  const n = ticked.size;
+  $('selBar').hidden = !n;
+  $('selCount').textContent = `${n} ${n === 1 ? 'log' : 'logs'} ticked`;
+  const locked = pageLogs.filter(l => ticked.has(l.id) && !l.can_edit_date).length;
+  $('logTagsBtn').disabled = !!locked;
+  $('logTagsBtn').title = locked ? `You may not change ${locked} of the ticked logs` : 'Add or remove tags of the ticked logs and their flights';
+}
+function tickLog(id, on) { on ? ticked.add(id) : ticked.delete(id); paintSelection(); }
+let logTagsField = null, logTagsBefore = [];
+function openLogTags() {
+  logTagsBefore = [...new Set(pageLogs.filter(l => ticked.has(l.id)).flatMap(l => l.tags || []))].sort((a, b) => a.localeCompare(b));
+  logTagsField = tagInput($('logTagsField'), {values: logTagsBefore});
+  $('logTagsTitle').textContent = `Tags of ${ticked.size} ticked ${ticked.size === 1 ? 'log' : 'logs'}`;
+  $('logTagsError').textContent = '';
+  $('logTagsDialog').showModal();
+  $('logTagsField').querySelector('input').focus();
+}
+async function applyLogTags() {
+  const now = logTagsField.values, low = s => s.toLowerCase();
+  const add = now.filter(t => !logTagsBefore.some(b => low(b) === low(t)));
+  const catalog = await tagCatalog(true);
+  const remove = logTagsBefore.filter(b => !now.some(t => low(t) === low(b)))
+    .map(b => catalog.find(t => low(t.name) === low(b))?.id).filter(id => id != null);
+  if (!add.length && !remove.length) { $('logTagsDialog').close(); return; }
+  const r = await fetch('/api/logs/tags', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({log_ids: [...ticked], tags_add: add, tags_remove: remove})});
+  if (!r.ok) { $('logTagsError').textContent = (await r.json().catch(() => ({}))).error || 'Could not save the tags.'; return; }
+  $('logTagsDialog').close();
+  tagCatalog(true);
+  ticked.clear();
+  lastRows = '';
+  refresh();
+}
+function tickPage(on) {
+  for (const l of pageLogs) on ? ticked.add(l.id) : ticked.delete(l.id);
+  document.querySelectorAll('#logs input[data-tick]').forEach(c => { c.checked = on; });
+  paintSelection();
 }
 function showLog(id) { onlyLog = id; expanded.add(id); logOffset = 0; window.viewState.save(true); refresh(); }
 function showAllLogs() { onlyLog = null; history.replaceState(history.state, '', location.pathname + location.search); logOffset = 0; window.viewState.save(true); refresh(); }
@@ -209,7 +273,7 @@ function ask(title, text, okLabel, danger = false, reason = false) {
   return new Promise(resolve => $('askDialog').addEventListener('close', () => resolve($('askDialog').returnValue === 'yes'), {once: true}));
 }
 // Columns of the log list; admins also see who uploaded each log and when.
-const logColumns = () => [['No.', '7%'], ['Date (UTC)', '12%'], ['Log', '19%'], ['Aircraft', '13%'], ['Project', '12%'],
+const logColumns = () => [['<input type="checkbox" id="tickAll" aria-label="Tick every log on this page" onclick="tickPage(this.checked)">', '28px', 'chk'], ['No.', '7%'], ['Date (UTC)', '12%'], ['Log', '19%'], ['Aircraft', '13%'], ['Project', '12%'],
   ['Flights', '6%', 'num'], ['Flight time', '8%', 'num'], ...(me?.is_admin ? [['Uploaded', '15%']] : []), ['Status', '8%']];
 // Admins: Manage ▾ with the re-parse tools and the date suggestions (when there are any).
 function syncEditUi() {
@@ -299,6 +363,7 @@ async function refresh() {
   }
   paintStatus(st);
   const logs = Array.isArray(body) ? body : (body.logs || []);
+  pageLogs = logs.filter(l => l.row_type !== 'ingest');
   logTotal = Array.isArray(body) ? logs.length : (body.total || 0);
   const lastOffset = Math.max(0, Math.ceil(logTotal / LOG_PAGE) - 1) * LOG_PAGE;
   if (logOffset > lastOffset) {
@@ -316,7 +381,7 @@ async function refresh() {
     n => { logOffset = n * LOG_PAGE; window.viewState.save(true); refresh(); });
   const tb = $('logs');
   const details = [];
-  const rowsKey = JSON.stringify([logs, [...expanded], me?.is_admin, cols.length]);
+  const rowsKey = JSON.stringify([logs, [...expanded], [...ticked], me?.is_admin, cols.length]);
   if (rowsKey === lastRows && !document.querySelector('#logs .menu-pop:not([hidden])')) {
     // same rows: only the opened logs' details are re-read (and redrawn when they changed)
     await Promise.all(logs.filter(l => expanded.has(l.id)).map(l => loadDetail(l.id)));
@@ -348,9 +413,10 @@ async function refresh() {
     const noLog = !l.has_log && (!l.log_type || l.log_type === 'onboard_sd' || l.log_type === 'gcs') ? ' · no .log' : '';
     const uploaded = me?.is_admin ? `<td title="${esc([`Uploaded ${l.uploaded_at || ''}`, l.uploaded_by_name ? `by ${l.uploaded_by_name}` : '', l.co_uploaders ? `also by ${l.co_uploaders}` : ''].filter(Boolean).join(' '))}"><span class="mute">${esc((l.uploaded_at || '').slice(0, 10))}</span> ${esc(l.uploaded_by_name || '—')}</td>` : '';
     // the log number: pprz_fetch('log', n) in MATLAB, ml.fetch(log=n) in Python
-    tr.innerHTML = `<td class="mono" title="Log number ${l.id}">${l.id}${window.copyButton(l.id, `log number ${l.id}`)}</td>
+    tr.innerHTML = `<td class="chk"><input type="checkbox" data-tick="${l.id}" aria-label="Tick log ${l.id}"${ticked.has(l.id) ? ' checked' : ''} onclick="event.stopPropagation(); tickLog(${l.id}, this.checked)"></td>
+      <td class="mono" title="Log number ${l.id}">${l.id}${window.copyButton(l.id, `log number ${l.id}`)}</td>
       <td>${dateLabel}${estimatedDateBadge(l)}</td>
-      <td title="${esc(l.name)} · log ${l.id} · ${esc(l.sha256.slice(0, 12))}…${noLog}">${esc(l.name)}<span class="size">${fmtSize(l.size_bytes)}${noLog}</span></td>
+      <td title="${esc(l.name)} · log ${l.id} · ${esc(l.sha256.slice(0, 12))}…${noLog}${(l.tags || []).length ? ' · tags: ' + esc(l.tags.join(', ')) : ''}">${esc(l.name)}<span class="size">${fmtSize(l.size_bytes)}${noLog}</span>${window.tagChips(l.tags || [], l.tags_hidden || [])}</td>
       <td title="${esc(l.aircraft_names || '')}">${esc((l.aircraft_names || '').replace(/,/g, ', ')) || '<span class="mute">—</span>'}</td>
       <td onclick="event.stopPropagation()">${projectCell}</td>
       <td class="num">${flights}</td><td class="num">${l.flight_time_s ? fmtDur(l.flight_time_s) : '<span class="mute">—</span>'}</td>
@@ -364,6 +430,7 @@ async function refresh() {
       details.push(loadDetail(l.id));
     }
   }
+  paintSelection();
   await Promise.all(details);
   if (query !== logsQuery()) { refreshWanted = true; return; }
   window.viewState.ready();
@@ -598,7 +665,7 @@ $('logSearch').oninput = () => {
   window.viewState.save();
   logSearchTimer = setTimeout(refresh, 250);
 };
-window.addEventListener('flightfilterschange', () => window.viewState.save(true));
+window.addEventListener('flightfilterschange', () => { window.viewState.save(true); logOffset = 0; refresh(); });
 let lastPoll = Date.now();
 setInterval(() => {
   if (document.hidden || document.querySelector('.detail:hover') || document.querySelector('dialog[open]')) return;

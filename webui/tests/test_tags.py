@@ -67,6 +67,63 @@ class TagTests(AppTests):
         self.assertEqual([home.real_flight(r) for r in sorted(rows, key=lambda r: r["flight_id"])], [False, True])
 
 
+class LogTagTests(AppTests):
+    """Logs are hidden by tags too (#396): a log's tags are its upload tags and its flights' tags."""
+    entry = TagTests.entry
+
+    def setUp(self):
+        super().setUp()
+        self.con.execute(
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(1,'Digital','test','test.data','done','now',2,1,'onboard_sd')")
+        self.con.execute("INSERT INTO aircraft(id,log_id,drone_id,name,ac_id) VALUES(1,1,1,'Drone',7)")
+        self.con.executemany(
+            "INSERT INTO flights(id,aircraft_id,idx,duration_s,takeoff_utc,verdict,project_id,has_gps_position,"
+            " takeoff_lat,takeoff_lon) VALUES(?,1,?,100,?,'flight',1,1,52.0,4.0)",
+            [(1, 0, "2011-01-01T12:00:00.000Z"), (2, 1, "2011-01-01T13:00:00.000Z")])
+        self.con.execute(  # a simulation log that produced no flight
+            "INSERT INTO logs(id,name,sha256,data_path,status,uploaded_at,uploaded_by,project_id,log_type)"
+            " VALUES(2,'Sim run','sim','sim.data','done','now',2,1,'onboard_sd')")
+        self.con.commit()
+
+    def listed(self, **query):
+        return [l["id"] for l in self.client.get("/api/logs", query_string=query).json["logs"]]
+
+    def test_tag_logs_and_hide_them_on_the_logs_page(self):
+        self.sign_in(3)  # view access only
+        self.assertEqual(self.client.put("/api/logs/tags", json={"log_ids": [2], "tags_add": ["simulation"]}).status_code, 403)
+        self.sign_in(2)
+        self.assertEqual(self.client.put("/api/logs/tags", json={"log_ids": [], "tags_add": ["x"]}).status_code, 400)
+        self.assertEqual(self.client.put("/api/logs/tags", json={"log_ids": [99], "tags_add": ["x"]}).status_code, 404)
+        self.assertEqual(self.client.put("/api/logs/tags", json={"log_ids": [1, 2], "tags_add": ["simulation"]}).status_code, 200)
+        self.assertEqual(self.entry("log:1")["tags"], ["simulation"])  # the log's flights get it too
+        logs = {l["id"]: l["tags"] for l in self.client.get("/api/logs").json["logs"]}
+        self.assertEqual(logs, {1: ["simulation"], 2: ["simulation"]})
+        self.assertEqual(self.listed(not_tags="simulation"), [])  # ⊘ in Flight filters
+        self.assertEqual(self.listed(tags="Simulation"), [2, 1])  # ✓ only those
+        self.assertEqual(self.listed(tags="unknown"), [])
+        self.assertEqual(self.listed(log=2, not_tags="simulation"), [2])  # opening one log still shows it
+        self.assertEqual(self.listed(mine=1, not_tags="simulation"), [2, 1])  # your recent uploads too
+        tag = self.client.get("/api/tags").json["tags"][0]["id"]
+        self.sign_in(1)
+        self.client.put(f"/api/admin/tags/{tag}", json={"hidden": True})
+        self.assertEqual(self.listed(), [])  # hidden by default ...
+        self.assertEqual(self.listed(tags="simulation"), [2, 1])  # ... until asked for
+        nolog, = self.client.get("/api/logbook/logs-without-flights").json["logs"]
+        self.assertEqual((nolog["id"], nolog["tags"], nolog["tags_hidden"]), (2, ["simulation"], ["simulation"]))
+        # removing it from the log and its flights; a merge or delete also reaches the logs' upload tags
+        self.assertEqual(self.client.put("/api/logs/tags", json={"log_ids": [1], "tags_remove": [tag]}).status_code, 200)
+        self.assertEqual(self.listed(), [1])
+        other = self.client.put("/api/logs/tags", json={"log_ids": [1], "tags_add": ["sim"]})
+        self.assertEqual(other.status_code, 200)
+        sim = next(t["id"] for t in self.client.get("/api/tags").json["tags"] if t["name"] == "sim")
+        self.client.post(f"/api/admin/tags/{sim}/merge", json={"into": tag})
+        self.assertEqual(self.listed(), [])
+        self.client.delete(f"/api/admin/tags/{tag}")
+        self.assertEqual(self.listed(), [2, 1])
+        self.assertIsNone(self.con.execute("SELECT upload_tags FROM logs WHERE id=2").fetchone()[0])
+
+
 class UploadTagTests(AppTests):
     """Tags given with an upload go to the flights of its log (#368)."""
 
