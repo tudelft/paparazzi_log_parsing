@@ -282,7 +282,8 @@ and the **API keys** tab to inspect, narrow or revoke their API keys (not retrie
 **Agenda** (optional) is a week agenda of bookable items, one tab per item plus **All** (no tabs with a single
 item). Click a booking to open it, or drag in an empty part of a day (or use **New booking**) to book that time; the
 strip to the right of the bookings stays free for that, and dragging across a booking you may not change books too.
-Drag a booking you may change to move it: it opens with the new times, and **Save** moves it.
+Drag a booking you may change to move it: it opens with the new times, and **Save** moves it. A red line marks the
+current time on today; switching tabs keeps the same time at the top.
 **Subscribe** gives private links to show the agenda in your calendar app. A booking has a description, start and end, and the item's
 options, for example "No others" or "Demo". Bookings of one item may overlap unless one of them ticks an option that
 blocks overlaps (such as "No others"); later ones then show **2nd**, **3rd**, … by when they were booked. An item
