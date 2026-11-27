@@ -28,7 +28,7 @@ class OperationsTests(AppTests):
 
     def plan(self, **body):
         return self.client.post("/api/operations", json={
-            "place_id": 1, "start": f"{DAY}T10:00", "end": f"{DAY}T14:00", "project_id": 1, **body})
+            "place_id": 1, "start": f"{DAY}T10:00", "end": f"{DAY}T14:00", "projects": [1], **body})
 
     def item_id(self):
         return self.client.get("/api/operations/options").json["item_id"]
@@ -63,7 +63,8 @@ class OperationsTests(AppTests):
         options = self.client.get("/api/operations/options").json
         self.assertEqual(([p["name"] for p in options["places"]], options["rule"]), (["Field"], "direct"))
         self.assertEqual([p["id"] for p in options["projects"]], [1])
-        self.assertEqual(self.plan(project_id=2).status_code, 400)  # not their project
+        self.assertEqual(self.plan(projects=[2]).status_code, 400)  # not their project
+        self.assertEqual(self.plan(projects=[]).status_code, 400)
         self.assertEqual(self.client.post("/api/bookings", json={  # the generic booking refuses the item
             "thing_id": item["id"], "description": "x", "start": f"{DAY}T10:00", "end": f"{DAY}T11:00"}).status_code, 409)
         prep = self.client.post("/api/operations/prepare", json={
@@ -74,7 +75,7 @@ class OperationsTests(AppTests):
         self.assertEqual((r.status_code, r.json["status"]), (201, "approved"), r.json)
         slot = self.client.get(f"/api/operations/{r.json['id']}").json
         team, = slot["teams"]
-        self.assertEqual((slot["place"], team["pic"], team["project"], [c["name"] for c in team["crew"]],
+        self.assertEqual((slot["place"], team["pic"], [p["name"] for p in team["projects"]][0], [c["name"] for c in team["crew"]],
                           [d["name"] for d in team["drones"]]), ("Field", "Pilot", "Research", ["Viewer"], ["Drone"]))
         self.assertEqual(team["preparation"]["notam"], {"checked": True, "reference": "A1234/26"})
         self.assertEqual(team["preparation"]["weather"], FORECAST)
@@ -143,12 +144,15 @@ class OperationsTests(AppTests):
         self.sign_in(2)
         bid = self.plan().json["id"]
         self.sign_in(5)
-        r = self.client.post(f"/api/operations/{bid}/teams", json={"project_id": 1, "goal": "Swarm"})
+        r = self.client.post(f"/api/operations/{bid}/teams", json={"projects": [1], "goal": "Swarm"})
         self.assertEqual((r.status_code, r.json["status"]), (201, "approved"), r.json)
-        self.assertEqual(self.client.post(f"/api/operations/{bid}/teams", json={"project_id": 1}).status_code, 409)
+        second = self.client.post(f"/api/operations/{bid}/teams", json={"projects": [1], "goal": "Other project"})
+        self.assertEqual(second.status_code, 201)  # one PIC may have several teams (other projects or aircraft)
         slot = self.client.get(f"/api/operations/{bid}").json
         self.assertEqual(([t["pic"] for t in slot["teams"]], slot["can_join"], slot["can_move"]),
-                         (["Pilot", "Uploader"], False, False))
+                         (["Pilot", "Uploader", "Uploader"], True, False))
+        self.assertEqual(self.client.delete(f"/api/operations/teams/{second.json['team_id']}").status_code, 200)
+        slot = self.client.get(f"/api/operations/{bid}").json
         mine = slot["teams"][1]["id"]
         self.assertEqual(self.client.delete(f"/api/operations/teams/{slot['teams'][0]['id']}").status_code, 403)
         self.assertEqual(self.client.put(f"/api/operations/{bid}", json={
@@ -166,12 +170,12 @@ class OperationsTests(AppTests):
         self.sign_in(2)
         bid = self.plan(goal="First").json["id"]
         team = self.client.get(f"/api/operations/{bid}").json["teams"][0]["id"]
-        r = self.client.put(f"/api/operations/teams/{team}", json={"project_id": 1, "goal": "Second", "crew": [3]})
+        r = self.client.put(f"/api/operations/teams/{team}", json={"projects": [1], "goal": "Second", "crew": [3]})
         self.assertEqual(r.json["status"], "approved", r.json)
         edited = self.client.get(f"/api/operations/{bid}").json["teams"][0]
         self.assertEqual((edited["goal"], [c["id"] for c in edited["crew"]]), ("Second", [3]))
         self.sign_in(3)
-        self.assertEqual(self.client.put(f"/api/operations/teams/{team}", json={"project_id": 1}).status_code, 403)
+        self.assertEqual(self.client.put(f"/api/operations/teams/{team}", json={"projects": [1]}).status_code, 403)
 
     def test_flight_area_and_buffer(self):
         # the location (a circle of 100 m around 52, 4): a 40 m square area in the middle (corners 28 m out), at most 80 m high
@@ -198,7 +202,7 @@ class OperationsTests(AppTests):
         self.assertEqual((team["height_m"], team["preparation"]["area"]["inside"]), (50, True))
         own = [[p[0] + 0.0006, p[1]] for p in square]  # a team's own area, moved towards the edge
         self.assertEqual(self.client.put(f"/api/operations/teams/{team['id']}", json={
-            "project_id": 1, "height_m": 50, "flight_area": own}).json["status"], "approved")
+            "projects": [1], "height_m": 50, "flight_area": own}).json["status"], "approved")
         self.assertEqual(self.con.execute("SELECT buffer_inside FROM operation_teams").fetchone()[0], 0)
         self.assertTrue(self.client.get(f"/api/operations/{r.json['id']}").json["teams"][0]["own_area"])
 
@@ -228,12 +232,65 @@ class OperationsTests(AppTests):
         team, = self.client.get(f"/api/operations/{r.json['id']}").json["teams"]
         self.assertEqual([d["name"] for d in team["drones"]], ["Drone", "Other"])
         self.assertEqual([(c["who"], c["ok"]) for c in team["preparation"]["checks"]], [("Other", False), ("Drone", True)])
-        self.assertEqual(self.client.put(f"/api/operations/teams/{team['id']}", json={"project_id": 1, "drones": [2]}).status_code, 200)
+        self.assertEqual(self.client.put(f"/api/operations/teams/{team['id']}", json={"projects": [1], "drones": [2]}).status_code, 200)
         self.assertEqual([r[0] for r in self.con.execute("SELECT drone_id FROM operation_drones")], [2])
         # a team's one aircraft from before moves to operation_drones
         self.con.execute("UPDATE operation_teams SET drone_id=1")
         self.con.execute(db.OPERATION_DRONES_FROM_TEAMS)
         self.assertEqual(sorted(r[0] for r in self.con.execute("SELECT drone_id FROM operation_drones")), [1, 2])
+
+    def test_several_projects_and_teams_of_one_pic(self):
+        self.con.execute("INSERT INTO project_members(project_id,user_id,role) VALUES (2,2,'edit')")
+        self.con.execute("INSERT INTO drones(id,name,unique_id,created_at) VALUES (2,'Other','UID2','now')")
+        self.con.commit()
+        self.sign_in(2)
+        r = self.plan(projects=[2, 1, 2], drones=[1])
+        self.assertEqual(r.status_code, 201, r.json)
+        bid = r.json["id"]
+        second = self.client.post(f"/api/operations/{bid}/teams", json={"projects": [2], "drones": [2]})
+        self.assertEqual(second.status_code, 201, second.json)
+        teams = self.client.get(f"/api/operations/{bid}").json["teams"]
+        self.assertEqual([[p["name"] for p in t["projects"]] for t in teams], [["Private", "Research"], ["Private"]])
+        # the same PIC in both teams: a flight goes to the team of the aircraft that flew it
+        self.flight(11, "10:30", pic=2)
+        self.con.execute("UPDATE aircraft SET drone_id=2")
+        self.con.commit()
+        slot = self.client.get(f"/api/operations/{bid}").json
+        self.assertEqual([[f["flight_id"] for f in t["flights"]] for t in slot["teams"]], [[], [11]])
+        # a team's one project from before moves to operation_projects
+        self.con.execute("DELETE FROM operation_projects")
+        self.con.execute("UPDATE operation_teams SET project_id=1")
+        self.con.execute(db.OPERATION_PROJECTS_FROM_TEAMS)
+        self.assertEqual([r[0] for r in self.con.execute("SELECT project_id FROM operation_projects")], [1, 1])
+
+    def test_removing_someone_elses_team_mails_its_pic(self):
+        mail_env = patch.dict(os.environ, {"LOGDB_SMTP_HOST": "relay.example.org", "LOGDB_MAIL_FROM": "logbook@example.org"})
+        mail_env.start()
+        self.addCleanup(mail_env.stop)
+        self.con.execute("UPDATE users SET email=lower(username)||'@example.org'")
+        self.con.commit()
+        r = self.plan(pic_id=2)  # the admin plans for Pilot
+        team = r.json["team_id"]
+        self.assertTrue(self.client.get(f"/api/operations/{r.json['id']}").json["can_join"])  # creator, not in a team
+        self.assertTrue(self.client.delete(f"/api/operations/teams/{team}").json["slot_removed"])
+        mails = self.con.execute("SELECT user_id, subject, body FROM mail_outbox WHERE subject LIKE 'Removed:%'").fetchall()
+        self.assertEqual([(m[0], "Admin took your team out" in m[2], "the slot is cancelled" in m[2]) for m in mails], [(2, True, True)])
+
+    def test_cancel_slot(self):
+        self.sign_in(2)
+        bid = self.plan().json["id"]
+        self.sign_in(5)
+        self.assertEqual(self.client.post(f"/api/operations/{bid}/teams", json={"projects": [1]}).status_code, 201)
+        self.assertFalse(self.client.get(f"/api/operations/{bid}").json["can_cancel"])  # not every team is theirs
+        self.assertEqual(self.client.delete(f"/api/operations/{bid}").status_code, 403)
+        self.sign_in(1)  # an administrator cancels it with both teams
+        self.assertTrue(self.client.get(f"/api/operations/{bid}").json["can_cancel"])
+        self.assertEqual(self.client.delete(f"/api/operations/{bid}").status_code, 200)
+        self.assertIsNone(self.con.execute("SELECT 1 FROM bookings WHERE id=?", (bid,)).fetchone())
+        self.assertIsNone(self.con.execute("SELECT 1 FROM operation_teams WHERE booking_id=?", (bid,)).fetchone())
+        self.sign_in(2)  # who planned every team cancels their own slot
+        bid = self.plan().json["id"]
+        self.assertEqual(self.client.delete(f"/api/operations/{bid}").status_code, 200)
 
     def test_last_flown_project_first(self):
         self.sign_in(2)
@@ -330,7 +387,7 @@ class OperationsTests(AppTests):
         self.assertEqual((ext["status"], ext["ref"], ext["can_set"]), ("requested", None, False))
         self.assertEqual(self.client.post(f"/api/operations/{bid}/external", json={"ref": "48213"}).status_code, 403)
         self.sign_in(5)  # joins: the mailbox hears of it
-        self.client.post(f"/api/operations/{bid}/teams", json={"project_id": 1})
+        self.client.post(f"/api/operations/{bid}/teams", json={"projects": [1]})
         self.assertTrue(self.booking_mails()[-1]["subject"].startswith("Booking update: "))
         self.sign_in(1)
         self.assertEqual(self.client.post(f"/api/operations/{bid}/external", json={"ref": " 48213 "}).status_code, 200)

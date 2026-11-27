@@ -1747,11 +1747,14 @@ discarded, your `rule`: `direct`, `approval` or null, `notam_url`, and `last_pro
 latest real flight as PIC, PAC or GCS in the logbook, else your default project, if it is one of yours, else null); `POST /api/operations/prepare` (`place_id`,
 `start`, `end`, `pic_id`, `crew`, `drones`: the forecast, the checks and the overlapping slots at that place,
 nothing stored); `POST /api/operations` (Plan flight: place, start, end, at most one day, and the team fields
-`project_id` (one of your projects), `pic_id` (default you), `crew`, `drones` (aircraft ids, at most 10; table
+`projects` (one or more of your projects; table `operation_projects`), `pic_id` (default you), `crew`, `drones` (aircraft ids, at most 10; table
 `operation_drones`), `goal`, `notam: {checked,
 reference}`); `GET /api/operations/<booking id>` (the slot with its teams); `POST /api/operations/<id>/teams` (join
-for the whole slot; one team per PIC); `PUT`/`DELETE /api/operations/teams/<id>` (edit or leave: the team's PIC, whoever
-added it, or an administrator; the slot is removed with its last team); `PUT /api/operations/<id>` (change the time:
+for the whole slot; one PIC may have several teams, for example for different projects or aircraft; a flight goes to
+the team whose aircraft flew it, else to the first team whose PIC or crew flew it); `PUT`/`DELETE /api/operations/teams/<id>` (edit or leave: the team's PIC, whoever
+added it, or an administrator; the slot is removed with its last team); `DELETE /api/operations/<id>` (cancel the slot with all its teams: administrators, approvers, or who planned or flies
+every team; the other PICs get a mail, the location's mailbox the cancellation; removing someone else's team also
+mails its PIC); `PUT /api/operations/<id>` (change the time:
 administrators, approvers or a slot's only team); `POST /api/operations/teams/<id>/review` (approve or reject with an
 optional reason). The booker and the PIC both need a rule qualification (403 otherwise); when either only has one that
 needs approval the team is `pending`. An edited team stays approved while its PIC is the same.

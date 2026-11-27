@@ -213,7 +213,7 @@
 </main>
 <dialog class="entry-dialog" id="helpDialog" aria-labelledby="helpTitle" style="width:min(640px,calc(100% - 32px))">
   <div class="dialog-header"><h2 id="helpTitle">Agenda help</h2><button type="button" onclick="$('helpDialog').close()">Close</button></div>
-  <div class="help-body"><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's, as the dot on its tab (in All, hover over a booking for its item). With one item there are no tabs. A red line marks the current time on today. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all (without it they have no tab). Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>⋯</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with project, PIC, optional crew and aircraft (several of each). It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot. Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></div>
+  <div class="help-body"><p>Pick an item in the tabs, or All for every item you may see. Click a booking to open it; drag in an empty part of a day, in the strip next to the bookings, or across a booking you may not change, to book that time (a click in an empty part books an hour). Drag a booking you may change to another time or day: it opens with the new times, and Save moves it. Options a booking ticks show as tags, with their colour; the block's colour is the item's, as the dot on its tab (in All, hover over a booking for its item). With one item there are no tabs. A red line marks the current time on today. Subscribe gives private links for your calendar app, for all items or one. Bookings of the same item may overlap, unless one of them sets a blocking option (for example "No others"); the other options only label a booking. An item can be set the other way round (Edit item → Overlapping bookings): then bookings overlap only when both set the same option, for example "Others allowed". When bookings overlap, the later ones show 2nd, 3rd, … by when they were booked. Some items need a current qualification to book, or to see their agenda at all (without it they have no tab). Some need approval: your booking then shows as Pending (striped) and holds its time until an administrator or approver approves or rejects it; moving it asks again. You can change or delete your own bookings; administrators can book for someone else and change any booking. Administrators also see items that are closed for bookings, add items with <em>⋯</em> → <em>Add bookable item…</em>, change the open item with <em>Edit item</em> (⋯ deletes it) and drag the tabs to order them. Times are local.</p><p><strong>Outdoor operations</strong> (when the server has it on): <em>Plan flight</em> books a slot at a bookable location for your team, with PIC, projects, optional crew and aircraft (several of each). One PIC may have several teams in a slot, for example for different projects. It shows the weather forecast, red/green checks of the qualifications and the aircraft for that day, and the NOTAM check; they are saved with your team. Click a slot to see its teams, their preparation, or <em>Join this slot…</em> with your own team (one booking, a shared field). The last team that leaves removes the slot; <em>Cancel slot…</em> removes it with all its teams (administrators, approvers, or who planned every team). Who may plan, and whether it needs approval, follows the qualifications in <em>Edit item</em>.</p></div>
 </dialog>
 <dialog class="entry-dialog" id="lockDialog" aria-labelledby="lockTitle" onkeydown="if(event.key==='Escape'){event.preventDefault();closeLock();}">
   <div class="dialog-header"><h2 id="lockTitle">Qualification required</h2></div>
@@ -314,8 +314,9 @@
         <div class="two" id="planTimes"><label class="field">Start<input name="start" type="datetime-local" required onchange="prepare()"></label>
           <label class="field">End<input name="end" type="datetime-local" required onchange="prepare()"></label></div>
         <p class="op-info" id="planJoinHint" hidden></p>
-        <div class="two"><label class="field">Project<select name="project_id" required></select></label>
-          <label class="field">PIC<select name="pic_id" onchange="prepare()"></select></label></div>
+        <label class="field">PIC<select name="pic_id" onchange="prepare()"></select></label>
+        <div class="field"><span class="mute" style="font-size:12px">Projects</span>
+          <div class="op-chips" id="planProjects"></div></div>
         <div class="field"><span class="mute" style="font-size:12px">Crew (optional)</span>
           <div class="op-chips" id="planCrew"></div></div>
         <div class="field"><span class="mute" style="font-size:12px">Aircraft (optional)</span>
@@ -888,7 +889,7 @@ function removeBooking() {
 // ---- Outdoor operations (LOGDB_OPERATIONS): Plan flight books a slot at a location for your team, Join adds your
 // team to a slot, and the slot dialog lists its teams. The preparation (weather, checks, NOTAM check) is shown while
 // planning and stored with the team on the server.
-let plan = null, planTimer = null, planCrew = [], planDrones = [], planDroneNames = {}, planArea = null, planMap = null, planLayers = null, planPlace = null, planSeq = 0;
+let plan = null, planTimer = null, planCrew = [], planProjects = [], planDrones = [], planDroneNames = {}, planArea = null, planMap = null, planLayers = null, planPlace = null, planSeq = 0;
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const compass = deg => deg == null ? '' : COMPASS[Math.round(deg / 22.5) % 16];
 const num = (v, d = 1) => v == null ? '–' : (+v).toFixed(d);
@@ -919,8 +920,12 @@ function drawArea(m, group, shape, a) {
       {color: '#cf222e', weight: a.inside ? 2 : 4, fillOpacity: a.inside ? .06 : .18, dashArray: '6 4'}).addTo(group);  // bolder: crosses the boundary
   }
   if (a && a.area) L.polygon(a.area, {color: '#1a7f37', weight: 2, fillOpacity: .25}).addTo(group);
-  m.invalidateSize();
-  m.fitBounds(boundary.getBounds ? boundary.getBounds() : boundary.getLatLng().toBounds(2 * shape.radius_m), {padding: [10, 10]});
+  // Fit the boundary, area and buffer; again once the dialog has its final size (a map laid out while the dialog
+  // opens is still small, which zoomed far out).
+  const fit = () => { m.invalidateSize(); m.fitBounds(L.featureGroup(group.getLayers()).getBounds(), {padding: [10, 10]}); };
+  fit();
+  requestAnimationFrame(fit);
+  setTimeout(fit, 300);
 }
 function areaText(a, place) {
   if (!a || !a.area) return place.max_height_m || a && a.height_m ? 'No flight area for this location yet: draw one.' : 'No flight area or maximum height for this location yet: draw an area and set the height.';
@@ -951,6 +956,13 @@ function paintCrew() {
     + `<select aria-label="Add crew" onchange="if (this.value) { planCrew.push(+this.value); paintCrew(); prepare(); }"><option value="">Add a person…</option>${
       ops.people.filter(x => x.id !== pic && !planCrew.includes(x.id)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>`;
 }
+function paintProjects() {
+  const name = id => (ops.projects.find(x => x.id === id) || {name: planProjectNames[id] || '?'}).name;
+  $('planProjects').innerHTML = planProjects.map(id => `<span class="op-chip">${esc(name(id))}<button type="button" aria-label="Remove ${esc(name(id))}" onclick="planProjects = planProjects.filter(x => x !== ${id}); paintProjects()">✕</button></span>`).join('')
+    + `<select aria-label="Add project" onchange="if (this.value) { planProjects.push(+this.value); paintProjects(); }"><option value="">Add a project…</option>${
+      ops.projects.filter(x => !planProjects.includes(x.id)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>`;
+}
+let planProjectNames = {};
 function paintDrones() {
   const drone = id => ops.drones.find(x => x.id === id) || {name: planDroneNames[id] || '?'};
   const label = x => esc(x.name) + (x.status && x.status !== 'Ready' ? ' (' + esc(x.status) + ')' : '');
@@ -977,11 +989,10 @@ async function openPlan(start, end, slot, team) {
   if (!start) { const d = new Date(inTz(new Date())); d.setHours(d.getHours() + 24, 0, 0, 0); start = local(d); }
   if (!end) { const d = new Date(start); d.setHours(d.getHours() + 3); end = local(d); }
   f.start.value = start; f.end.value = end;
-  f.project_id.innerHTML = ops.projects.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   f.pic_id.innerHTML = ops.people.map(x => `<option value="${x.id}">${esc(x.name)}${x.id === me.id ? ' (you)' : ''}</option>`).join('');
   f.pic_id.value = team ? team.pic_id : me.id;
-  if (team && team.project_id) f.project_id.value = team.project_id;
-  else if (!team && ops.last_project_id) f.project_id.value = ops.last_project_id;
+  planProjects = team ? team.projects.map(p => p.id) : ops.last_project_id ? [ops.last_project_id] : ops.projects.length === 1 ? [ops.projects[0].id] : [];
+  planProjectNames = Object.fromEntries((team ? team.projects : []).map(p => [p.id, p.name]));
   planDrones = team ? team.drones.map(d => d.id) : [];
   planDroneNames = Object.fromEntries((team ? team.drones : []).map(d => [d.id, d.name]));  // also discarded ones
   f.goal.value = team ? team.goal : '';
@@ -998,6 +1009,7 @@ async function openPlan(start, end, slot, team) {
   $('planJoinHint').hidden = true;
   $('planError').textContent = '';
   paintCrew();
+  paintProjects();
   paintDrones();
   $('planDialog').showModal();
   needMap().then(() => {
@@ -1072,7 +1084,8 @@ async function joinFromPlan(id) {
 $('planForm').onsubmit = async event => {
   event.preventDefault();
   const f = event.target, {mode, slot, team} = plan;
-  const body = {project_id: +f.project_id.value, pic_id: +f.pic_id.value, crew: planCrew,
+  if (!planProjects.length) { $('planError').textContent = 'Choose one or more projects.'; return; }
+  const body = {projects: planProjects, pic_id: +f.pic_id.value, crew: planCrew,
     drones: planDrones, goal: f.goal.value,
     height_m: f.height_m.value ? +f.height_m.value : null, flight_area: planArea,
     notam: {checked: f.notam_checked.checked, reference: f.notam_reference.value}};
@@ -1099,12 +1112,12 @@ async function openSlot(id) {
     <dt>Requested</dt><dd>${esc(utc(x.requested_at))}, mailed to ${esc(x.mail_to)}${x.book_by ? ' · book by ' + esc(span(x.book_by, x.book_by).split('–')[0]) : ''}${x.reminded_at ? ' · reminder mailed ' + esc(utc(x.reminded_at)) : ''}</dd></dl>` : '';
   $('slotBody').innerHTML = extHTML + `<table class="op-teams"><tr><th>PIC</th><th>Project</th><th>Crew</th><th>Aircraft</th><th></th><th></th></tr>${slot.teams.map(t => `
     <tr><td><strong>${esc(t.pic)}</strong>${t.goal ? `<div class="mute" style="font-size:12px">${esc(t.goal)}</div>` : ''}
-      <div class="op-flights">${t.flights.length ? 'Flights: ' + t.flights.map(f => `<a href="/flight/${f.flight_id}" title="${esc(flightTip(f))}">${esc(flightTime(f))}</a>${t.can_link ? `<button type="button" title="Not this team's flight" aria-label="Unlink flight ${f.flight_id}" onclick="linkFlight(${t.id}, ${f.flight_id}, 'unlink')">✕</button>` : ''}`).join(' ') : 'No flights linked yet'}</div></td><td>${esc(t.project || '–')}</td>
+      <div class="op-flights">${t.flights.length ? 'Flights: ' + t.flights.map(f => `<a href="/flight/${f.flight_id}" title="${esc(flightTip(f))}">${esc(flightTime(f))}</a>${t.can_link ? `<button type="button" title="Not this team's flight" aria-label="Unlink flight ${f.flight_id}" onclick="linkFlight(${t.id}, ${f.flight_id}, 'unlink')">✕</button>` : ''}`).join(' ') : 'No flights linked yet'}</div></td><td>${esc(t.projects.map(p => p.name).join(', ') || '–')}</td>
       <td>${esc(t.crew.map(c => c.name).join(', ') || '–')}</td><td>${esc(t.drones.map(d => d.name).join(', ') || '–')}</td>
       <td><span class="op-st ${t.status}" title="${esc(t.review_note || '')}">${label[t.status]}</span></td>
       <td class="acts"><button type="button" class="sec" onclick="toggleSlotPrep(${t.id})" aria-expanded="${slotPrep === t.id}">Preparation ${slotPrep === t.id ? '▾' : '▸'}</button>
         ${t.can_decide ? `<button type="button" onclick="decideTeam(${t.id}, 'approve')">Approve</button> <button type="button" class="danger" onclick="decideTeam(${t.id}, 'reject')">Reject</button>` : ''}
-        ${t.can_edit ? `<button type="button" class="sec" onclick="openPlan(null, null, slotOpen, slotOpen.teams.find(x => x.id === ${t.id}))">Edit</button> <button type="button" class="danger" onclick="leaveTeam(${t.id})">Leave…</button>` : ''}</td></tr>
+        ${t.can_edit ? `<button type="button" class="sec" onclick="openPlan(null, null, slotOpen, slotOpen.teams.find(x => x.id === ${t.id}))">Edit</button> <button type="button" class="danger" onclick="leaveTeam(${t.id})" title="${t.pic_id === me.id ? 'Take your team out of this slot' : `Take ${esc(t.pic)}'s team out of this slot`}">${t.pic_id === me.id ? 'Leave…' : 'Remove…'}</button>` : ''}</td></tr>
     ${slotPrep === t.id ? `<tr class="op-prep"><td colspan="6"><div class="op-cols"><div>
       <section class="op-sec"><h3>Flight area and ground risk buffer <small>1:1</small></h3><div class="op-map" id="prepMap"></div>
         <p style="margin:4px 0 0;font-size:13px">${t.preparation.area ? (t.preparation.area.height_m ? `Maximum height ${t.preparation.area.height_m} m · ${t.preparation.area.own_area ? 'own flight area' : "the location's flight area"}. ` : '') + areaText(t.preparation.area, slot.geometry) : 'Planned before flight areas were kept.'}</p></section>
@@ -1120,6 +1133,7 @@ async function openSlot(id) {
       <td class="acts">${linkable.map(t => `<button type="button" class="sec" onclick="linkFlight(${t.id}, ${f.flight_id}, 'link')">Link to ${esc(t.pic)}</button>`).join(' ')}</td></tr>`).join('')}</table>`);
   $('slotActions').innerHTML = (slot.can_join ? '<button type="button" class="primary" onclick="openPlan(null, null, slotOpen)">Join this slot…</button> ' : '')
     + (slot.can_move ? '<button type="button" class="sec" onclick="moveSlot()">Change time…</button> ' : '')
+    + (slot.can_cancel ? '<button type="button" class="danger" onclick="cancelSlot()">Cancel slot…</button> ' : '')
     + `<button type="button" class="sec" onclick="$('slotDialog').close()">Close</button>`;
   $('slotError').textContent = '';
   if (!$('slotDialog').open) $('slotDialog').showModal();
@@ -1165,10 +1179,24 @@ function decideTeam(id, action) {
     <label class="field">Reason (optional, mailed to them)<textarea id="opReason" maxlength="500"></textarea></label>`, 'Reject',
     out => send($('opReason').value.trim(), out));
 }
+function cancelSlot() {
+  const live = slotOpen.teams.filter(x => x.status !== 'rejected');
+  const others = [...new Set(live.filter(t => t.pic_id !== me.id).map(t => t.pic))];
+  actDialog('Cancel slot', `<p style="margin:0">Cancel ${esc(slotOpen.place)}, ${esc(span(slotOpen.start, slotOpen.end))} with ${live.length === 1 ? 'its team' : 'all ' + live.length + ' teams'}?`
+    + (others.length ? ` ${esc(others.join(', '))} ${others.length === 1 ? 'gets' : 'get'} an email.` : '')
+    + (slotOpen.external ? ` ${esc(slotOpen.external.provider || 'The location')} is mailed the cancellation.` : '') + '</p>',
+    'Cancel slot', async out => {
+      try { await api('/api/operations/' + slotOpen.id, {method: 'DELETE'}); } catch (e) { out.textContent = e.message; return false; }
+      $('slotDialog').close();
+      await load();
+      return true;
+    });
+}
 function leaveTeam(id) {
   const t = slotOpen.teams.find(x => x.id === id), last = slotOpen.teams.filter(x => x.status !== 'rejected').length <= 1;
-  actDialog('Leave slot', `<p style="margin:0">Take ${esc(t.pic)}'s team out of ${esc(slotOpen.place)}, ${esc(span(slotOpen.start, slotOpen.end))}?${last ? ' It is the last team: the slot is removed.' : ''}</p>`,
-    'Leave', async out => {
+  const own = t.pic_id === me.id;
+  actDialog(own ? 'Leave slot' : 'Remove team', `<p style="margin:0">Take ${own ? 'your' : esc(t.pic) + "'s"} team out of ${esc(slotOpen.place)}, ${esc(span(slotOpen.start, slotOpen.end))}?${last ? ' It is the last team: the slot is removed.' : ''}${own ? '' : ' ' + esc(t.pic) + ' gets an email about it.'}</p>`,
+    own ? 'Leave' : 'Remove', async out => {
       let d;
       try { d = await api('/api/operations/teams/' + id, {method: 'DELETE'}); } catch (e) { out.textContent = e.message; return false; }
       await load();
