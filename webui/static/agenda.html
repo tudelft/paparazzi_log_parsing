@@ -913,6 +913,8 @@ function newMap(el) {
 // A location's boundary, a flight area and its ground risk buffer (inside: the server's verdict) on a map.
 function drawArea(m, group, shape, a) {
   group.clearLayers();
+  // a circle needs a map with a view before it is added (its radius is projected); fit() below sets the real view
+  if (!m._loaded) m.setView(shape.type === 'circle' ? shape.center : L.latLngBounds(shape.points).getCenter(), 15);
   const boundary = shape.type === 'circle' ? L.circle(shape.center, {radius: shape.radius_m}) : L.polygon(shape.points);
   boundary.setStyle({color: '#57606a', weight: 2, fill: false, dashArray: '2 4'}).addTo(group);
   if (a && a.area && a.buffer_m && window.turf) {
