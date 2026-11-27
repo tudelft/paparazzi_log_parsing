@@ -1220,7 +1220,9 @@ Admins have **Add aircraft** and **Manage ▾** (Import CSV…, Download CSV tem
 tabs **Unlinked names** (when there are any, also with `HIDE_UNLINKED_AIRCRAFT`) and **Shared names** (one row per name with its recordings, boards and aircraft; a click opens its
 boards below it, `sname=` in the URL, with *Remove ambiguous status…* at the bottom): tick names,
 boards or recordings and use **Link to aircraft…** in the selection bar (the dialog lists every aircraft, including
-Discard; a single folder candidate is preselected). Pending requests show **Approve**/**Reject…** to who may decide
+Discard; a single folder candidate is preselected; when the ticked rows are of one autopilot family, the aircraft
+that fly it come first, then those without logs, then the others: `autopilots` per aircraft, unlinked name and
+shared-name recording in `GET /api/drones`). Pending requests show **Approve**/**Reject…** to who may decide
 and **Withdraw** to the requester. Dialogs close with Cancel, Close or Escape.
 <a id="people-page"></a>**People page** ([UI rule](#ui-rule)). A table like Aircraft, the
 same for everyone: Name (a link to the pilot page), Flights, Hours and Last flight as PIC within the flight filters
@@ -2662,7 +2664,11 @@ upload path is a hint. Folders are tried from the file's own folder upward, skip
 dump names (`logs`, `uploads`, …) and `YYYY-MM-DD` date folders. The first (deepest) folder
 that uniquely overlaps one fleet name wins, so `Hex 1/2026-10-13/LOG00030.BFL`
 links to Hex 1. An ambiguous token such as `Quadrotor` is skipped and a higher unique
-folder may still match. Select folder includes the chosen folder name in the stored path (drop
+folder may still match. Aircraft do not switch autopilots, so a folder match must fly the log's autopilot family
+(Paparazzi, PX4, ArduPilot, Betaflight/INDIFlight/Blackbox; `log_autopilot`, from the logs already linked to it,
+not counting the log itself), or have no logs yet: a PX4 log in a folder named after a Paparazzi aircraft is not
+guessed, and of two matching aircraft the only one of the same family wins. A `.tlog` (PX4 or ArduPilot) has no
+family and matches as before. Select folder includes the chosen folder name in the stored path (drop
 and zip already did). A logged name that is only the log's file name is not stored as an alias and not listed
 under *Names in logs*: the parser uses the file name when a log has no craft name (Betaflight/INDIFlight without
 one, PX4 without an airframe), so `LOG00030`, `LOG00159_manualShakedown` or `flight_a` (from `flight_a.bbl`) say
